@@ -21,7 +21,7 @@
 html,body{height:100%;background:var(--bg);color:var(--fg);font-family:var(--font);overflow:hidden;
   -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:none}
 #app{height:100%;display:flex;flex-direction:column;align-items:center}
-#hud{width:100%;max-width:640px;display:flex;justify-content:space-between;align-items:center;
+#hud{width:100%;max-width:640px;display:flex;white-space:nowrap;gap:8px;justify-content:space-between;align-items:center;
   padding:8px 12px;font-size:13px;letter-spacing:1px;border-bottom:1px solid var(--dim)}
 #hud .label{color:var(--dim)}
 #hp span{display:inline-block;width:10px;height:10px;margin-left:3px;border:1px solid var(--fg)}
@@ -55,6 +55,8 @@ button.ghost{background:transparent;color:var(--fg);border:1px solid var(--fg)}
 .grade{font-size:28px;letter-spacing:6px;margin:4px 0 8px}
 .grade.win{color:var(--ok)} .grade.lose{color:var(--danger)}
 .resline{border:1px solid var(--dim);padding:6px 8px;margin-top:8px;font-size:12px;word-break:break-all}
+#tools{position:absolute;z-index:4;display:flex;gap:6px}
+.mini{margin:0;background:rgba(11,11,13,.7)!important;padding:2px 6px;font-size:11px;letter-spacing:0;background:transparent;color:var(--fg);border:1px solid var(--dim);font-weight:normal}
 .hidden{display:none!important}
 </style>
 </head>
@@ -68,6 +70,7 @@ button.ghost{background:transparent;color:var(--fg);border:1px solid var(--fg)}
   <div id="stage">
     <canvas id="cv"></canvas>
     <div id="scan"></div>
+    <div id="tools"><button type="button" id="btnEndPr" class="mini hidden">结束练习</button><button type="button" id="btnMute" class="mini">声音 开</button></div>
 
     <!-- 开始界面 -->
     <div class="overlay" id="intro">
@@ -87,10 +90,12 @@ button.ghost{background:transparent;color:var(--fg);border:1px solid var(--fg)}
           <label><input type="radio" name="ctrl" value="stick"> 摇杆</label>
         </div>
         <div class="row">灵敏度 <input id="inSens" type="range" min="0.6" max="2.5" step="0.1" value="1.2" style="width:140px;border:0"> <span id="sensV">1.2</span></div>
+        <div class="row">音效 <input id="inSfx" type="range" min="0" max="1" step="0.05" value="0.8" style="width:90px;border:0">
+          音乐 <input id="inBgm" type="range" min="0" max="1" step="0.05" value="0.5" style="width:90px;border:0"></div>
         <div class="row"><label><input type="checkbox" id="inLow"> 简化特效</label><span class="muted">（卡顿时会自动开启）</span></div>
         <hr>
         <div id="rules"></div>
-        <button id="btnStart">开始骇入</button>
+        <div class="row"><button id="btnStart">开始骇入</button><button class="ghost" id="btnPractice">练习模式</button></div>
         <div class="muted" style="margin-top:8px">demo：正式版中技能值由角色录入界面提供；难度和关卡由 KP 设定，玩家看不到。</div>
       </div>
     </div>
@@ -129,6 +134,7 @@ const TEXT = {
   perfectExtra: '（极限成功：KP 可追加一条额外信息）',
   loseText: '入侵被系统察觉。仿生人举起了枪——与仿生人进行战斗。',
   loseHP: '骇入进度 {pct}%：警察仿生人 HP {from} → {to}',
+  tips: ['练习模式：不计入判定', '只需要移动，射击是自动的', '橙色子弹可以击落', '暗色子弹打不掉，只能躲', '红色虚线 = 激光即将发射', '中心的红点才是判定点'],
 };
 
 const CONFIG = {
@@ -174,7 +180,7 @@ const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n)
 
 function readTheme(){
   COL = {bg:cssv('--bg'), fg:cssv('--fg'), dim:cssv('--dim'), enemy:cssv('--enemy'), hard:cssv('--hard'),
-         hardEdge:cssv('--hard-edge'), danger:cssv('--danger')};
+         hardEdge:cssv('--hard-edge'), danger:cssv('--danger'), ok:cssv('--ok')};
   FONT = cssv('--font');
   PCOL = [COL.fg, COL.enemy, COL.danger, COL.hardEdge, COL.dim];   // 粒子颜色表（按索引批量绘制）
 }
@@ -192,6 +198,7 @@ function resize(){
   VIGNETTE = null;
   const r = cv.getBoundingClientRect(), s = $('stage').getBoundingClientRect();
   Object.assign($('scan').style, {left:(r.left-s.left)+'px', top:(r.top-s.top)+'px', width:size+'px', height:size+'px'});
+  Object.assign($('tools').style, {right:(s.right-r.right+6)+'px', top:(r.top-s.top+(stageId==='boss'&&G?34:6))+'px'});
 }
 function setLow(on, auto){
   if (Q.low === on) return;
@@ -230,6 +237,78 @@ Pool.prototype.kill = function(i){ const a = this.a, j = --this.n, t = a[i]; a[i
 const BUL  = new Pool(900, () => ({x:0,y:0,vx:0,vy:0,r:6,hard:false}));
 const SHOT = new Pool(160, () => ({x:0,y:0,vx:0,vy:0}));
 const PART = new Pool(520, () => ({x:0,y:0,vx:0,vy:0,life:0,c:0}));
+
+/* ================================================================
+   声音：每种声音一个插槽。填了文件名就播放文件（放在 audio/ 目录），
+   没填或加载失败就用代码合成的占位音。之后由编辑器“素材”页修改。
+   ================================================================ */
+const SOUND_FILES = {
+  shot:'', hit:'', pop:'', small:'', big:'', shield:'', hurt:'',
+  warn:'', laser:'', link:'', win:'', lose:'', click:'', wave:'',
+};
+const BGM_FILES = { stage:'', boss:'' };
+
+const SND = {ctx:null, sfx:null, bgm:null, buf:{}, last:{}, vol:{sfx:0.8, bgm:0.5}, mute:false, bgmEl:null, bgmName:''};
+const GAP = {shot:0.07, hit:0.05, pop:0.04, small:0.06, warn:0.15};   // 同一声音的最短间隔，防止叠成噪音
+function sndInit(){             // 必须在点击里调用（手机浏览器的要求）
+  if (SND.ctx){ if (SND.ctx.state === 'suspended') SND.ctx.resume(); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  const c = SND.ctx = new AC();
+  SND.sfx = c.createGain(); SND.sfx.connect(c.destination);
+  sndApplyVol();
+  for (const k in SOUND_FILES) if (SOUND_FILES[k])
+    fetch('audio/' + SOUND_FILES[k]).then(r => r.arrayBuffer()).then(a => c.decodeAudioData(a)).then(b => SND.buf[k] = b).catch(() => {});
+}
+function sndApplyVol(){
+  if (SND.sfx) SND.sfx.gain.value = SND.mute ? 0 : SND.vol.sfx;
+  if (SND.bgmEl) SND.bgmEl.volume = SND.mute ? 0 : SND.vol.bgm;
+}
+function bgm(name){
+  const f = name && BGM_FILES[name];
+  if (SND.bgmName === name) return; SND.bgmName = name;
+  if (SND.bgmEl){ SND.bgmEl.pause(); SND.bgmEl = null; }
+  if (!f) return;
+  const a = new Audio('audio/' + f); a.loop = true; SND.bgmEl = a; sndApplyVol();
+  a.play().catch(() => {});
+}
+function sfx(name){
+  const c = SND.ctx; if (!c || SND.mute) return;
+  const t = c.currentTime, g = GAP[name] || 0;
+  if (g && SND.last[name] && t - SND.last[name] < g) return; SND.last[name] = t;
+  if (SND.buf[name]){ const s = c.createBufferSource(); s.buffer = SND.buf[name]; s.connect(SND.sfx); s.start(); return; }
+  SYNTH[name] && SYNTH[name](c, t);
+}
+// ---- 合成占位音 ----
+function osc(c, t, type, f0, f1, dur, vol){
+  const o = c.createOscillator(), g = c.createGain();
+  o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(1,f1), t+dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+  o.connect(g); g.connect(SND.sfx); o.start(t); o.stop(t+dur+0.02);
+}
+let NOISE = null;
+function noise(c, t, dur, vol, f0, f1){
+  if (!NOISE){ NOISE = c.createBuffer(1, c.sampleRate, c.sampleRate); const d = NOISE.getChannelData(0); for (let i=0;i<d.length;i++) d[i] = rnd()*2-1; }
+  const s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+  s.buffer = NOISE; f.type = 'lowpass'; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(Math.max(40,f1), t+dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+  s.connect(f); f.connect(g); g.connect(SND.sfx); s.start(t); s.stop(t+dur+0.02);
+}
+const SYNTH = {
+  shot:  (c,t) => osc(c, t, 'square', 1400, 700, 0.035, 0.025),
+  hit:   (c,t) => osc(c, t, 'triangle', 320, 180, 0.04, 0.08),
+  pop:   (c,t) => noise(c, t, 0.05, 0.08, 6000, 1500),
+  small: (c,t) => { noise(c, t, 0.25, 0.25, 3000, 200); osc(c, t, 'sine', 160, 50, 0.2, 0.2); },
+  big:   (c,t) => { noise(c, t, 0.7, 0.45, 5000, 80); osc(c, t, 'sine', 110, 30, 0.6, 0.45); },
+  shield:(c,t) => { noise(c, t, 1.1, 0.5, 8000, 60); osc(c, t, 'sawtooth', 700, 60, 0.9, 0.12); osc(c, t, 'sine', 90, 25, 1.0, 0.5); },
+  hurt:  (c,t) => { osc(c, t, 'square', 220, 55, 0.28, 0.16); noise(c, t, 0.2, 0.2, 2500, 300); },
+  warn:  (c,t) => { osc(c, t, 'square', 880, 880, 0.07, 0.05); osc(c, t+0.11, 'square', 880, 880, 0.07, 0.05); },
+  laser: (c,t) => { osc(c, t, 'sawtooth', 90, 70, 1.0, 0.08); noise(c, t, 1.0, 0.06, 1500, 600); },
+  link:  (c,t) => { [440,660,880,1320].forEach((f,i) => osc(c, t+i*0.08, 'square', f, f, 0.12, 0.05)); },
+  wave:  (c,t) => { osc(c, t, 'square', 523, 523, 0.1, 0.05); osc(c, t+0.13, 'square', 784, 784, 0.16, 0.05); },
+  win:   (c,t) => { noise(c, t, 1.4, 0.4, 6000, 60); [784,659,523,392].forEach((f,i) => osc(c, t+0.5+i*0.12, 'triangle', f, f, 0.3, 0.08)); },
+  lose:  (c,t) => { osc(c, t, 'sawtooth', 400, 40, 1.2, 0.12); noise(c, t, 0.6, 0.2, 3000, 100); },
+  click: (c,t) => osc(c, t, 'square', 1800, 1800, 0.02, 0.03),
+};
 
 /* ================================================================
    输入
@@ -431,8 +510,8 @@ const ENEMY = {
       e.rot += dt;
       if (e.t < 1){ e.t += dt; const k = Math.min(1, dt*3); e.x += (e.ax-e.x)*k; e.y += (e.ay-e.y)*k; return; }
       // 预警线就是激光实际的位置；开火后只缓慢偏移，看到预警往旁边让开即可躲过
-      if (e.st === 0){ if ((e.bt -= dt) <= 0){ e.st = 1; e.bt = 0.75; e.ang = atan2(pl.y-e.y, pl.x-e.x); } }
-      else if (e.st === 1){ if ((e.bt -= dt) <= 0){ e.st = 2; e.bt = 1.0; G.shake = Math.max(G.shake, 0.15); } }
+      if (e.st === 0){ if ((e.bt -= dt) <= 0){ e.st = 1; e.bt = 0.75; e.ang = atan2(pl.y-e.y, pl.x-e.x); sfx('warn'); } }
+      else if (e.st === 1){ if ((e.bt -= dt) <= 0){ e.st = 2; e.bt = 1.0; G.shake = Math.max(G.shake, 0.15); sfx('laser'); } }
       else {
         e.ang += e.dir*0.22*dt*bs;
         if (pl.inv <= 0 && hitBeam(pl.x, pl.y, e.x, e.y, e.ang, 900, 7)) hurt();
@@ -465,7 +544,7 @@ const ENEMY = {
       if (G.boot > 0) return;
       // 激光（第二、三阶段）
       for (const L of e.lasers){
-        L.ang += L.spd*dt*bs; if (L.warn > 0){ L.warn -= dt; continue; }
+        L.ang += L.spd*dt*bs; if (L.warn > 0){ if ((L.warn -= dt) <= 0) sfx('laser'); continue; }
         if (pl.inv <= 0 && hitBeam(pl.x, pl.y, e.x, e.y, L.ang, 900, 7)) hurt();
       }
       if (e.inv > 0) return;
@@ -592,6 +671,7 @@ const STAGE_LOGIC = {
   },
 };
 function startWave(){
+  sfx('wave');
   G.wave++; G.waveT = 0; G.spawnT = 0;
   const w = SWARM_WAVES[G.wave];
   text(`WAVE ${G.wave+1}/${SWARM_WAVES.length}`, 1.2, 40, COL.fg); ring(CX, CY, 380, 0.7, COL.fg, 3);
@@ -601,6 +681,7 @@ function startWave(){
   for (let i=0;i<w.diver;i++)   G.queue.push({type:'diver',   o:{hp:HP.diver,   ax:70+rnd()*460, ay:50+rnd()*200, t:-i*0.8}});
 }
 function bossPhase(e, ph){
+  sfx('shield');
   e.ph = ph; e.inv = 1.6; e.n = 0; e.cool = 0.6;
   e.lasers = ph === 2 ? [{ang:0, spd:0.35, warn:1.4},{ang:Math.PI, spd:0.35, warn:1.4}]
            : [{ang:0, spd:-0.42, warn:1.4},{ang:TAU/3, spd:-0.42, warn:1.4},{ang:TAU*2/3, spd:-0.42, warn:1.4}];
@@ -612,8 +693,9 @@ function bossPhase(e, ph){
 }
 
 /* ---- 击破演出 ---- */
-function breakSmall(e){ G.lkx = e.x; G.lky = e.y; burst(e.x, e.y, 16, 1, 1); burst(e.x, e.y, 6, 0, 0.8); ring(e.x, e.y, 50, 0.35, COL.fg, 2); G.shake = Math.max(G.shake, 0.15); }
+function breakSmall(e){ sfx('small'); G.lkx = e.x; G.lky = e.y; burst(e.x, e.y, 16, 1, 1); burst(e.x, e.y, 6, 0, 0.8); ring(e.x, e.y, 50, 0.35, COL.fg, 2); G.shake = Math.max(G.shake, 0.15); }
 function breakBig(e, kind){
+  sfx('big');
   G.lkx = e.x; G.lky = e.y;
   burst(e.x, e.y, 46, 0, 1.5); burst(e.x, e.y, 20, 1, 1.1);
   ring(e.x, e.y, 150, 0.55, COL.fg, 4); ring(e.x, e.y, 90, 0.4, COL.enemy, 2);
@@ -622,13 +704,14 @@ function breakBig(e, kind){
     const left = G.enemies.filter(x => x.type==='firewall' && x.hp>0).length;
     if (left > 0) text(`FIREWALL ${4-left}/4 BREACHED`, 1.1, 26, COL.fg);
     else {
-      text('SHIELD DOWN', 1.5, 52, COL.danger);
+      text('SHIELD DOWN', 1.5, 52, COL.danger); sfx('shield');
       ring(CX, CY, 480, 0.9, COL.danger, 6); ring(CX, CY, 300, 0.7, COL.fg, 3);
       cancelBullets(); G.fx.slow = 0.35; G.fx.flash = 0.45; G.fx.glitch = 0.4; G.shake = 0.7;
     }
   } else text('SCANNER DOWN', 0.9, 26, COL.fg);
 }
 function breakFinal(e){
+  sfx('win'); bgm('');
   G.usedAt = STAGES[stageId].time - G.timeLeft;
   cancelBullets(); G.endX = e.x; G.endY = e.y;
   for (const x of G.enemies) if (x !== e && x.hp > 0){ x.hp = 0; breakSmall(x); }
@@ -640,6 +723,7 @@ function breakFinal(e){
 /* ================================================================
    六、主更新
    ================================================================ */
+let practice = false;
 function newGame(){
   P = paramsFromSkill(skill);
   stageId = stageChoice === 'random' ? STAGE_ORDER[rnd()*3|0] : stageChoice;
@@ -651,9 +735,10 @@ function newGame(){
     shake:0, dealt:0, total:1, fwAlive:0,
     fx:{flash:0, red:0, slow:0, glitch:0},
     boot:1.8, ending:0, endWin:false, usedAt:0, endX:CX, endY:CY,
+    practice:practice, hits:0, tips: practice ? TEXT.tips.slice() : [],
   };
   STAGE_LOGIC[stageId].setup();
-  text('LINK START', 1.6, 46, COL.fg); ring(CX, CY, 420, 0.9, COL.fg, 3); G.fx.glitch = 0.5;
+  text('LINK START', 1.6, 46, COL.fg); sfx('link'); bgm(stageId==='boss'?'boss':'stage'); ring(CX, CY, 420, 0.9, COL.fg, 3); G.fx.glitch = 0.5;
   renderHP(); timerStr = '';
 }
 
@@ -669,6 +754,7 @@ function update(rdt){
   for (let i=G.rings.length-1;i>=0;i--){ const r = G.rings[i]; if ((r.t += rdt) >= r.life) G.rings.splice(i,1); }
   for (let i=G.texts.length-1;i>=0;i--){ if ((G.texts[i].life -= rdt) <= 0) G.texts.splice(i,1); }
   G.shake = Math.max(0, G.shake - rdt);
+  if (G.tips.length && !G.texts.length && G.ending <= 0) text(G.tips.shift(), 2.4, 22, COL.fg);
   for (const e of G.enemies) e.flash = Math.max(0, e.flash - rdt);
 
   // 结束演出
@@ -713,7 +799,7 @@ function update(rdt){
 
   // 自动射击
   if ((pl.fire -= dt) <= 0){
-    pl.fire = P.fireInterval; pl.muzzle = 0.05;
+    pl.fire = P.fireInterval; pl.muzzle = 0.05; sfx('shot');
     for (const o of [-0.06, 0.06]){ const s = SHOT.take(); if (!s) break; s.x = pl.x; s.y = pl.y; s.vx = cos(pl.aim+o)*620; s.vy = sin(pl.aim+o)*620; }
   }
 
@@ -723,13 +809,13 @@ function update(rdt){
     if (s.x<0||s.x>W||s.y<0||s.y>H){ SHOT.kill(i); continue; }
     for (let j=BUL.n-1;j>=0;j--){ const b = BUL.a[j]; if (b.hard) continue;
       const dx = b.x-s.x, dy = b.y-s.y, rr = b.r+3;
-      if (dx*dx+dy*dy < rr*rr){ burst(b.x, b.y, 5, 1, 0.8); BUL.kill(j); SHOT.kill(i); continue shots; } }
+      if (dx*dx+dy*dy < rr*rr){ burst(b.x, b.y, 5, 1, 0.8); sfx('pop'); BUL.kill(j); SHOT.kill(i); continue shots; } }
     for (const e of G.enemies){ if (e.hp <= 0) continue;
       const dx = e.x-s.x, dy = e.y-s.y, rr = (e.shield||e.inv>0) ? e.r+22 : e.r;
       if (dx*dx+dy*dy < rr*rr){
         SHOT.kill(i);
         if (e.shield || e.inv > 0){ burst(s.x, s.y, 2, 4, 0.5); continue shots; }
-        e.hp--; e.flash = 0.06; G.dealt++; burst(s.x, s.y, 2, e.type==='core'||e.type==='boss'?2:0, 0.6);
+        e.hp--; e.flash = 0.06; G.dealt++; sfx('hit'); burst(s.x, s.y, 2, e.type==='core'||e.type==='boss'?2:0, 0.6);
         if (e.hp <= 0){ ENEMY[e.type].die(e); if (G.ending > 0) return; }
         continue shots;
       } }
@@ -748,21 +834,24 @@ function update(rdt){
   if (SL.won && SL.won()){ breakFinal({x:G.lkx||CX, y:G.lky||CY}); return; }
   if (G.timeLeft <= 0){
     G.timeLeft = 0; G.usedAt = STAGES[stageId].time;
-    text('TIME OUT', 1.4, 48, COL.danger); fx.glitch = 1.0; fx.red = 0.6; G.ending = 1.2; G.endWin = false;
+    text('TIME OUT', 1.4, 48, COL.danger); sfx('lose'); bgm(''); fx.glitch = 1.0; fx.red = 0.6; G.ending = 1.2; G.endWin = false;
   }
 }
 
 function hurt(){
+  if (G.ending > 0) return;
   const pl = G.player;
   pl.hp--; pl.inv = 1.3; G.shake = 0.55;
   burst(pl.x, pl.y, 30, 2, 1.3); ring(pl.x, pl.y, 110, 0.45, COL.danger, 3);
   for (let i=BUL.n-1;i>=0;i--){ const b = BUL.a[i], dx = b.x-pl.x, dy = b.y-pl.y; if (dx*dx+dy*dy < 8100) BUL.kill(i); }
   G.fx.red = 0.45; G.fx.glitch = 0.35; G.fx.slow = 0.14;
+  sfx('hurt'); G.hits++;
+  if (G.practice && pl.hp <= 0){ pl.hp = P.playerHP; renderHP(); text('练习：耐久已恢复', 1.0, 22, COL.ok||COL.fg); return; }
   renderHP();
   if (pl.hp <= 0){
     G.usedAt = STAGES[stageId].time - G.timeLeft;
     burst(pl.x, pl.y, 80, 0, 2); ring(pl.x, pl.y, 300, 0.8, COL.danger, 5);
-    text('CONNECTION LOST', 1.6, 40, COL.danger);
+    text('CONNECTION LOST', 1.6, 40, COL.danger); sfx('lose'); bgm('');
     G.fx.glitch = 1.4; G.fx.slow = 1.0; G.fx.red = 1.0; G.ending = 1.4; G.endWin = false;
   } else text('WARNING', 0.6, 30, COL.danger);
 }
@@ -874,6 +963,18 @@ let lastResult = null;
 function finish(win){
   if (state !== 'play') return;
   state = 'result';
+  $('btnEndPr').classList.add('hidden');
+  if (G.practice){
+    const used = G.usedAt || (STAGES[stageId].time - G.timeLeft);
+    $('rGrade').textContent = '练习结束'; $('rGrade').className = 'grade';
+    $('rText').textContent = win ? '你击破了目标。正式判定时，耐久归零就会失败。' : '练习结束。正式判定时，耐久归零或超时就会失败。';
+    $('rStats').textContent = `关卡 ${STAGES[stageId].name} · 用时 ${used.toFixed(1)} 秒 · 被击中 ${G.hits} 次`;
+    $('rLine').classList.add('hidden'); $('btnCopy').classList.add('hidden'); $('btnRetry').textContent = '返回';
+    lastResult = null; bgm('');
+    setTimeout(() => $('result').classList.remove('hidden'), 700);
+    return;
+  }
+  $('rLine').classList.remove('hidden'); $('btnCopy').classList.remove('hidden'); $('btnRetry').textContent = '重新开始（demo）';
   const ST = STAGES[stageId], pl = G.player, used = G.usedAt || (ST.time - G.timeLeft);
   const progress = Math.min(1, G.dealt / G.total);
   const perfect = win && pl.hp === P.playerHP && (ST.time - used) >= ST.perfectLeft;
@@ -917,18 +1018,33 @@ $('inLow').addEventListener('change', () => { Q.forced = $('inLow').checked; set
 try{ const c = JSON.parse(localStorage.getItem('void-ctrl')||'null');
   if (c){ document.querySelector(`input[name=ctrl][value=${c.ctrlMode==='stick'?'stick':'follow'}]`).checked = true;
           $('inSens').value = c.sens; $('sensV').textContent = (+c.sens).toFixed(1);
-          if (c.low){ $('inLow').checked = true; Q.forced = true; } } }catch(_){}
+          if (c.low){ $('inLow').checked = true; Q.forced = true; }
+          if (c.sfx != null){ SND.vol.sfx = c.sfx; $('inSfx').value = c.sfx; }
+          if (c.bgm != null){ SND.vol.bgm = c.bgm; $('inBgm').value = c.bgm; }
+          if (c.mute){ SND.mute = true; $('btnMute').textContent = '声音 关'; } } }catch(_){}
 
-$('btnStart').onclick = () => {
+function begin(isPractice){
+  sndInit(); sfx('click'); practice = isPractice;
   operator = $('inName').value.trim() || 'HO4';
   skill = Math.max(1, Math.min(99, +$('inSkill').value || 1)); $('inSkill').value = skill;
   CONFIG.difficulty = curDiff();
   ctrlMode = document.querySelector('input[name=ctrl]:checked').value;
   sens = +$('inSens').value;
-  try{ localStorage.setItem('void-ctrl', JSON.stringify({ctrlMode, sens, low:Q.forced})); }catch(_){}
+  saveSettings();
   newGame(); $('intro').classList.add('hidden'); state = 'play'; perf.t = 0; perf.ema = 1/60;
-};
-$('btnRetry').onclick = () => { $('result').classList.add('hidden'); $('intro').classList.remove('hidden'); state = 'intro'; G = null; refreshIntro(); };
+  $('btnEndPr').classList.toggle('hidden', !practice); resize();
+}
+$('btnStart').onclick = () => begin(false);
+$('btnPractice').onclick = () => begin(true);
+$('btnEndPr').onclick = () => { if (state === 'play' && G && G.practice){ G.usedAt = STAGES[stageId].time - G.timeLeft; finish(false); } };
+$('tools').addEventListener('pointerdown', e => e.stopPropagation());
+$('btnMute').onclick = () => { SND.mute = !SND.mute; $('btnMute').textContent = SND.mute ? '声音 关' : '声音 开'; sndApplyVol(); saveSettings(); };
+$('inSfx').oninput = () => { SND.vol.sfx = +$('inSfx').value; sndApplyVol(); };
+$('inBgm').oninput = () => { SND.vol.bgm = +$('inBgm').value; sndApplyVol(); };
+$('inSfx').onchange = () => { sndInit(); sfx('hit'); saveSettings(); };
+$('inBgm').onchange = saveSettings;
+function saveSettings(){ try{ localStorage.setItem('void-ctrl', JSON.stringify({ctrlMode, sens, low:Q.forced, sfx:SND.vol.sfx, bgm:SND.vol.bgm, mute:SND.mute})); }catch(_){} }
+$('btnRetry').onclick = () => { sfx('click'); $('btnEndPr').classList.add('hidden'); $('result').classList.add('hidden'); $('intro').classList.remove('hidden'); state = 'intro'; G = null; refreshIntro(); };
 $('btnCopy').onclick = () => {
   const txt = $('rLine').textContent;
   const done = () => { $('btnCopy').textContent = '已复制'; setTimeout(() => $('btnCopy').textContent = '复制结果', 1500); };

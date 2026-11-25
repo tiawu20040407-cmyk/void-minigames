@@ -1,5 +1,5 @@
 """生成两首可无缝循环的 BGM。运行：python3 tools/audio/bgm.py
-输出 games/hack/audio/bgm-stage.mp3、bgm-boss.mp3。
+输出 games/hack/audio/bgm-synth-stage.mp3、bgm-synth-boss.mp3（备用，目前游戏使用的是 HACK_NORMAL / HACK_BOSS）。
 
 无缝循环的做法：把整首曲子连续渲染两遍，混响、延迟的尾巴会从第一遍延续到第二遍，
 然后只截取第二遍。这样截下来的开头已经带着“上一轮”的尾巴，循环接缝处听不出断点。"""
@@ -294,7 +294,7 @@ def song_boss():
 
 if __name__ == '__main__':
     os.makedirs(OUT, exist_ok=True)
-    for name, fn in (('bgm-stage', song_stage), ('bgm-boss', song_boss)):
+    for name, fn in (('bgm-synth-stage', song_stage), ('bgm-synth-boss', song_boss)):   # 合成版（备用），不覆盖正在用的 bgm-stage/bgm-boss
         x = fn()
         write_mp3(os.path.join(OUT, name + '.mp3'), x, kbps=128, stereo=True)
         print(name, f'{x.shape[1]/SR:.1f}s')

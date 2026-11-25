@@ -246,8 +246,12 @@ const SOUND_FILES = {   // 由 tools/audio/sfx.py 生成（shot 为魔王魂素�
   shot:'shot.wav', hit:'hit.wav', pop:'pop.wav', small:'small.wav', big:'big.mp3', shield:'shield.mp3', hurt:'hurt.wav',
   warn:'warn.wav', laser:'laser.mp3', link:'link.mp3', win:'win.mp3', lose:'lose.mp3', click:'click.wav', wave:'wave.wav',
 };
-const BGM_FILES = { stage:'bgm-stage.mp3', boss:'bgm-boss.mp3' };   // 由 tools/audio/bgm.py 生成
-const BGM_LEN = { stage:64, boss:51.2 };   // 循环长度（秒），换 BGM 文件时要一起改
+// BGM：前奏播一次，之后在 loopStart～loopEnd 之间循环（秒）。循环点由 tools/audio/loop.py 找出。
+// stage 用于“防火墙”“数据流”，boss 用于“守卫程序”。
+const BGM = {
+  stage: {file:'bgm-stage.mp3', loopStart:22.5545, loopEnd:84.8922},    // HACK_NORMAL
+  boss:  {file:'bgm-boss.mp3',  loopStart:51.7616, loopEnd:150.0473},   // HACK_BOSS
+};
 const SOUND_VOL = { shot:0.35, hit:0.45, pop:0.4, small:0.6, big:0.85, shield:1, hurt:0.9,
                     warn:0.55, laser:0.5, link:0.7, wave:0.6, win:1, lose:0.9, click:0.5 };   // 各插槽的单独音量
 
@@ -267,8 +271,8 @@ function sndInit(){             // 必须在点击里调用（手机浏览器的
       .catch(() => {   // 本地双击打开（file://）时读不到文件，改用 <audio> 元素播放
         SND.el[k] = Array.from({length:4}, () => { const a = new Audio('audio/' + SOUND_FILES[k]); a.preload = 'auto'; return a; });
       });
-  for (const k in BGM_FILES) if (BGM_FILES[k])
-    load(BGM_FILES[k]).then(b => { SND.bgmBuf[k] = b; if (SND.bgmName === k && !SND.bgmSrc && !SND.bgmEl) bgmStart(k); })
+  for (const k in BGM) if (BGM[k].file)
+    load(BGM[k].file).then(b => { SND.bgmBuf[k] = b; if (SND.bgmName === k && !SND.bgmSrc && !SND.bgmEl) bgmStart(k); })
       .catch(() => { SND.bgmFail[k] = true; if (SND.bgmName === k && !SND.bgmSrc && !SND.bgmEl) bgmStart(k); });
 }
 function sndApplyVol(){
@@ -290,18 +294,22 @@ function bgmStart(name){
     const d = buf.getChannelData(0); let z = 0; const lim = Math.min(d.length, buf.sampleRate*0.2);
     while (z < lim && d[z] === 0) z++;
     const s = c.createBufferSource(), g = c.createGain();
+    const z0 = z / buf.sampleRate, cfg = BGM[name];
     s.buffer = buf; s.loop = true;
-    s.loopStart = z / buf.sampleRate; s.loopEnd = Math.min(buf.duration, s.loopStart + BGM_LEN[name]);
-    g.gain.setValueAtTime(0, c.currentTime); g.gain.linearRampToValueAtTime(1, c.currentTime + 0.8);
-    s.connect(g); g.connect(SND.bgmGain); s.start(0, s.loopStart);
+    s.loopStart = z0 + cfg.loopStart; s.loopEnd = Math.min(buf.duration, z0 + cfg.loopEnd);
+    g.gain.setValueAtTime(0, c.currentTime); g.gain.linearRampToValueAtTime(1, c.currentTime + 0.3);
+    s.connect(g); g.connect(SND.bgmGain); s.start(0, z0);          // 从头播放前奏，到 loopEnd 后跳回 loopStart
     SND.bgmSrc = {s, g};
   } else if (SND.bgmFail[name]){   // 本地打开时的兜底
-    const a = new Audio('audio/' + BGM_FILES[name]); a.loop = true; SND.bgmEl = a; sndApplyVol(); a.play().catch(() => {});
+    const cfg = BGM[name], a = new Audio('audio/' + cfg.file);
+    a.addEventListener('timeupdate', () => { if (a.currentTime >= cfg.loopEnd) a.currentTime = cfg.loopStart; });
+    a.addEventListener('ended', () => { a.currentTime = cfg.loopStart; a.play().catch(() => {}); });
+    SND.bgmEl = a; sndApplyVol(); a.play().catch(() => {});
   }
   // 还没加载完：加载完成时会自动开始
 }
 function bgm(name){
-  name = name && BGM_FILES[name] ? name : '';
+  name = name && BGM[name] && BGM[name].file ? name : '';
   if (SND.bgmName === name) return;
   bgmStop(); SND.bgmName = name;
   if (name) bgmStart(name);

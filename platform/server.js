@@ -47,7 +47,7 @@ const DEFAULT_AMBIENT = [
   '环境噪声处于正常范围。',
   '未发现未登记的机体。',
 ];
-const GLITCHES = ['snow', 'black'];
+const GLITCHES = ['snow', 'black', 'bsod']; // bsod：人类办公电脑的蓝屏
 
 // ---------- 启动 ----------
 const db = DB.load();
@@ -56,6 +56,9 @@ db.messages = db.messages || []; // {id, to: [uid], title, body, t, readBy: {uid
 // 第 3a 步：扫描条目、环境台词池。用户上另有 model（型号名）、hudColor（旧型机颜色）、vitals（体征覆盖）
 db.scans = db.scans || [];       // {id, title, lines, createdAt, updatedAt}；状态存在 db.unlocks[uid]['scan:'+id]
 if (!Array.isArray(db.hudAmbient)) db.hudAmbient = DEFAULT_AMBIENT.slice();
+// 第 3b 步：办公电脑的系统名、回收站文件（状态存在 db.unlocks[uid]['trash:'+id]）。用户上另有 notes（记事本）
+if (typeof db.deskName !== 'string' || !db.deskName) db.deskName = 'MPD OS';
+db.trash = db.trash || [];       // {id, title, body, createdAt, updatedAt}
 for (const u of db.users) if (u.role === 'player') fillHudDefaults(u);
 E.sync(db, GAMES_DIR);
 DB.save();
@@ -87,6 +90,12 @@ function notifyAllPlayers(what) { for (const u of db.users) if (u.role === 'play
 // ---------- 小工具 ----------
 function now() { return Date.now(); }
 
+function isHuman(u) { return !!u && u.role === 'player' && (u.ho === 'HO1' || u.ho === 'HO3'); }
+function trashKey(id) { return 'trash:' + id; }
+function notifyDesk(what = 'desk') {
+  for (const u of db.users) if (isHuman(u)) EV.send(u.id, 'refresh', { what });
+  notifyKp();
+}
 function isAndroid(u) { return !!u && u.role === 'player' && (u.ho === 'HO2' || u.ho === 'HO4'); }
 function fillHudDefaults(u) {
   if (u.model === undefined) u.model = u.ho === 'HO2' ? 'BR800' : '';
@@ -244,7 +253,7 @@ function publicUser(u, forKp = false) {
     id: u.id, username: u.username, role: u.role, ho: u.ho, kind: u.kind,
     status: u.status, test: !!u.test, sheet: u.sheet, hpNow: u.hpNow,
   };
-  if (forKp) Object.assign(out, { createdAt: u.createdAt, model: u.model, hudColor: u.hudColor, vitals: u.vitals });
+  if (forKp) Object.assign(out, { createdAt: u.createdAt, model: u.model, hudColor: u.hudColor, vitals: u.vitals, notes: u.notes || '', notesAt: u.notesAt || null });
   return out;
 }
 
@@ -327,6 +336,7 @@ const PAGES = {
   '/intranet': 'intranet.html',
   '/terminal': 'terminal.html',
   '/hud': 'hud.html',
+  '/desk': 'desk.html',
   '/kp': 'kp.html',
   '/kp/login': 'kp-login.html',
   '/kp/setup': 'kp-setup.html',
@@ -464,6 +474,28 @@ route('GET', '/api/hud', (req, res, body, url) => {
   ok(res, { ok: true, model: u.model, color: u.ho === 'HO2' ? 'cyan' : u.hudColor, partner, scans, ambient: db.hudAmbient });
 });
 
+// 人类办公电脑的数据：系统名、已开放的回收站文件、本人记事本
+route('GET', '/api/desk', (req, res, body, url) => {
+  const v = viewer(req, url);
+  if (!v || !isHuman(v.user) || v.user.status !== 'approved') return err(res, 403, '不可用');
+  const u = v.user;
+  const trash = db.trash.filter(t => entryState(u.id, trashKey(t.id)) === 'open')
+    .map(t => ({ id: t.id, title: t.title, body: t.body, updatedAt: t.updatedAt }));
+  ok(res, { ok: true, name: db.deskName, trash, notes: u.notes || '', notesAt: u.notesAt || null });
+});
+
+// 记事本：玩家自己写，KP 可看
+route('POST', '/api/notes', async (req, res, body) => {
+  const cu = currentUser(req, 'player');
+  if (!cu || cu.user.status !== 'approved') return err(res, 401, '请先登录');
+  const text = String(body.text ?? '');
+  if (text.length > 20000) return err(res, 400, '记事本最多 20000 个字');
+  cu.user.notes = text; cu.user.notesAt = now();
+  DB.save();
+  notifyKp('notes');
+  ok(res, { ok: true, t: cu.user.notesAt });
+});
+
 // ----- KP -----
 function requireKp(req, res) {
   const cu = currentUser(req, 'kp');
@@ -521,6 +553,8 @@ route('GET', '/api/kp/state', (req, res) => {
     unlocks: db.unlocks,
     scans: db.scans,
     hudAmbient: db.hudAmbient,
+    trash: db.trash,
+    deskName: db.deskName,
     presets: db.presets.map(p => ({ id: p.id, name: p.name, updatedAt: p.updatedAt })),
     messages: db.messages.slice().reverse(),
     invites: db.invites.slice().reverse(),
@@ -631,10 +665,12 @@ route('POST', '/api/kp/unlock', async (req, res, body) => {
   if (!requireKp(req, res)) return;
   const u = findPlayer(body.uid);
   const key = String(body.entry || '');
-  const isScan = key.startsWith('scan:');
-  const e = isScan ? db.scans.find(x => scanKey(x.id) === key) : entryList().find(x => x.id === key);
+  const isScan = key.startsWith('scan:'), isTrash = key.startsWith('trash:');
+  const e = isScan ? db.scans.find(x => scanKey(x.id) === key)
+    : isTrash ? db.trash.find(x => trashKey(x.id) === key)
+    : entryList().find(x => x.id === key);
   if (!u || !e) return err(res, 404, '玩家或入口不存在');
-  if (!(isScan ? ['hidden', 'open'] : STATES).includes(body.state)) return err(res, 400, '状态不正确');
+  if (!(isScan || isTrash ? ['hidden', 'open'] : STATES).includes(body.state)) return err(res, 400, '状态不正确');
   (db.unlocks[u.id] = db.unlocks[u.id] || {})[key] = body.state;
   DB.save();
   notifyUser(u.id, 'entries');
@@ -661,6 +697,7 @@ function snapshotStates() {
     states[u.id] = {};
     for (const e of entryList()) states[u.id][e.id] = entryState(u.id, e.id);
     for (const s of db.scans) states[u.id][scanKey(s.id)] = entryState(u.id, scanKey(s.id));
+    for (const t of db.trash) states[u.id][trashKey(t.id)] = entryState(u.id, trashKey(t.id));
   }
   return states;
 }
@@ -828,6 +865,49 @@ route('POST', '/api/kp/hud', async (req, res, body) => {
   ok(res);
 });
 
+// 回收站文件：新建或修改
+route('POST', '/api/kp/trash/save', async (req, res, body) => {
+  if (!requireKp(req, res)) return;
+  let title, text;
+  try {
+    title = cleanText(body.title, 40, '文件名');
+    text = cleanText(body.body, 5000, '内容', false);
+  } catch (x) { return err(res, 400, x.message); }
+  let t;
+  if (body.id) {
+    t = db.trash.find(x => x.id === body.id);
+    if (!t) return err(res, 404, '没有这个文件');
+    Object.assign(t, { title, body: text, updatedAt: now() });
+  } else {
+    t = { id: newId('t'), title, body: text, createdAt: now(), updatedAt: now() };
+    db.trash.push(t);
+  }
+  DB.save();
+  notifyDesk('trash');
+  ok(res, { ok: true, id: t.id });
+});
+
+route('POST', '/api/kp/trash/delete', async (req, res, body) => {
+  if (!requireKp(req, res)) return;
+  const t = db.trash.find(x => x.id === body.id);
+  if (!t) return err(res, 404, '没有这个文件');
+  db.trash = db.trash.filter(x => x !== t);
+  for (const st of Object.values(db.unlocks)) delete st[trashKey(t.id)];
+  for (const p of db.presets) for (const st of Object.values(p.states)) delete st[trashKey(t.id)];
+  DB.save();
+  notifyDesk('trash');
+  ok(res);
+});
+
+// 办公电脑系统名
+route('POST', '/api/kp/desk', async (req, res, body) => {
+  if (!requireKp(req, res)) return;
+  try { db.deskName = cleanText(body.name, 20, '系统名'); } catch (x) { return err(res, 400, x.message); }
+  DB.save();
+  notifyDesk('desk');
+  ok(res);
+});
+
 // 界面故障：只推送，不保存
 route('POST', '/api/kp/glitch', async (req, res, body) => {
   if (!requireKp(req, res)) return;
@@ -857,6 +937,7 @@ route('POST', '/api/kp/test/reset', async (req, res) => {
     });
     u.hpNow = u.sheet.hp;
     u.vitals = { hr: null, bp: null, rr: null };
+    u.notes = ''; u.notesAt = null;
     fillHudDefaults(u);
     db.unlocks[u.id] = Object.fromEntries(entryList().map(e => [e.id, 'open']));
     for (const m of db.messages) m.to = m.to.filter(x => x !== u.id);

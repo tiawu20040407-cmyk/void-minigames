@@ -1,0 +1,163 @@
+/* 人类办公电脑（HO1、HO3）：仿 Windows 10 的扁平风格，系统名虚构 */
+[hidden] { display: none !important; }
+body.desk {
+  --accent: #2b78d0; --tb: rgba(16, 22, 30, .92); --win: #ffffff; --wtext: #1b1b1b; --wdim: #6b6b6b; --wline: #dcdcdc;
+  margin: 0; height: 100vh; overflow: hidden; display: block;
+  font: 14px/1.55 "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Segoe UI", system-ui, sans-serif; color: #fff;
+  background: linear-gradient(150deg, #0a2340 0%, #134a78 48%, #0b2b4d 100%) fixed;
+}
+body.low * { transition: none !important; animation: none !important; }
+
+#desktop { position: fixed; inset: 0 0 48px 0; overflow: hidden; }
+#pv .preview-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 900; }
+.mark { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); text-align: center; color: rgba(255,255,255,.07); pointer-events: none; }
+.mark svg { width: 220px; height: 220px; }
+.mark div { font: 600 13px/1 "Segoe UI", sans-serif; letter-spacing: .4em; margin-top: 18px; }
+
+/* 桌面图标：竖着排在左边 */
+#icons { position: absolute; top: 8px; left: 6px; bottom: 8px; display: grid; grid-auto-flow: column; grid-template-rows: repeat(auto-fill, 96px); gap: 4px; }
+.ico { width: 84px; height: 92px; padding: 6px 2px; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: default;
+  border: 1px solid transparent; color: #fff; text-align: center; font-size: 13px; line-height: 1.25; user-select: none; position: relative; text-shadow: 0 1px 2px rgba(0,0,0,.8); }
+.ico:hover { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.14); }
+.ico.sel { background: rgba(120,170,255,.28); border-color: rgba(150,190,255,.5); }
+.ico svg { width: 44px; height: 44px; filter: drop-shadow(0 1px 2px rgba(0,0,0,.45)); }
+.ico .badge { position: absolute; top: 4px; right: 14px; background: #e81123; color: #fff; font-size: 11px; min-width: 18px; height: 18px; line-height: 18px; border-radius: 9px; padding: 0 5px; text-shadow: none; }
+
+/* 窗口 */
+.win { position: absolute; background: var(--win); color: var(--wtext); border: 1px solid #8a8a8a; box-shadow: 0 8px 30px rgba(0,0,0,.45);
+  display: flex; flex-direction: column; min-width: 260px; min-height: 160px; animation: wopen .14s ease-out; }
+.win.active { border-color: var(--accent); }
+.win.max { left: 0 !important; top: 0 !important; width: 100% !important; height: 100% !important; border: 0; animation: none; }
+@keyframes wopen { from { transform: scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
+.tbar { height: 32px; display: flex; align-items: center; flex: none; background: #fff; user-select: none; touch-action: none; }
+.win.active .tbar { background: #fff; }
+.win:not(.active) .tbar .ttl { color: #8a8a8a; }
+.tbar .ttl { flex: 1; padding-left: 12px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 8px; }
+.tbar .ttl svg { width: 16px; height: 16px; flex: none; }
+.tbar button { width: 46px; height: 32px; border: 0; background: transparent; color: #222; padding: 0; font: 14px "Segoe UI Symbol", sans-serif; letter-spacing: 0; }
+.tbar button:hover { background: #e5e5e5; color: #000; }
+.tbar button.x:hover { background: #e81123; color: #fff; }
+.wbody { flex: 1; overflow: auto; position: relative; }
+.win .wbody button { color: var(--wtext); border-color: #adadad; background: #e1e1e1; font-size: 13px; padding: 4px 14px; }
+.win .wbody button:hover { border-color: var(--accent); background: #e5f1fb; color: var(--wtext); }
+.win .wbody button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.win .dim { color: var(--wdim); }
+
+/* 邮件 */
+.mail { display: grid; grid-template-columns: 240px 1fr; height: 100%; }
+.mlist { border-right: 1px solid var(--wline); overflow: auto; background: #f7f7f7; }
+.mlist .hd { padding: 10px 12px; font-weight: 600; border-bottom: 1px solid var(--wline); }
+.mi { padding: 9px 12px 9px 16px; border-bottom: 1px solid #ececec; cursor: pointer; position: relative; }
+.mi:hover { background: #eaf3fc; }
+.mi.on { background: #cce4f7; }
+.mi.unread { font-weight: 700; }
+.mi.unread::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--accent); }
+.mi .t { font-size: 12px; color: var(--wdim); font-weight: normal; }
+.mread { padding: 16px 20px; overflow: auto; }
+.mread h3 { margin: 0 0 4px; font-size: 18px; }
+.mread .from { font-size: 12px; color: var(--wdim); border-bottom: 1px solid var(--wline); padding-bottom: 8px; margin-bottom: 12px; }
+.mread .body { white-space: pre-wrap; word-break: break-word; }
+
+/* 职员档案 */
+.prof { padding: 16px 20px; }
+.prof .top { display: flex; gap: 14px; align-items: center; margin-bottom: 12px; border: 0; padding: 0; }
+.prof .avatar { width: 56px; height: 56px; font-size: 24px; }
+.prof table td { padding: 6px 4px; border-bottom: 1px solid #eee; color: var(--wtext); }
+.prof table td:last-child { text-align: right; font-family: var(--mono); }
+
+/* 文件夹（程序、回收站） */
+.folder { padding: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
+.fi { width: 96px; padding: 8px 4px; text-align: center; font-size: 13px; line-height: 1.3; color: var(--wtext); border: 1px solid transparent; cursor: default; position: relative; user-select: none; word-break: break-all; }
+.fi:hover { background: #e5f3ff; border-color: #cce8ff; }
+.fi.sel { background: #cce8ff; border-color: #99d1ff; }
+.fi svg { width: 40px; height: 40px; display: block; margin: 0 auto 4px; }
+.fi.locked { color: #8a8a8a; }
+.fi .lk { position: absolute; left: 50%; top: 30px; margin-left: 6px; width: 18px; height: 18px; }
+.fi .desc { display: block; font-size: 11px; color: var(--wdim); }
+.fi .new { position: absolute; top: 4px; right: 8px; background: var(--accent); color: #fff; font-size: 10px; padding: 0 4px; }
+.status { position: sticky; bottom: 0; background: #f0f0f0; border-top: 1px solid var(--wline); font-size: 12px; color: var(--wdim); padding: 3px 10px; }
+.empty { padding: 20px; color: var(--wdim); }
+
+/* 记事本、文件查看 */
+.np { display: flex; flex-direction: column; height: 100%; }
+.np .menu { font-size: 13px; padding: 3px 8px; border-bottom: 1px solid var(--wline); color: #333; display: flex; gap: 14px; }
+.np textarea { flex: 1; border: 0; resize: none; padding: 8px 10px; font: 15px/1.6 Consolas, "Microsoft YaHei UI", monospace; color: #111; background: #fff; width: 100%; }
+.np textarea:focus { border: 0; }
+.np .status { position: static; }
+.fileview { white-space: pre-wrap; word-break: break-word; padding: 10px 12px; font: 15px/1.6 Consolas, "Microsoft YaHei UI", monospace; }
+
+/* 任务栏、开始菜单 */
+#taskbar { position: fixed; left: 0; right: 0; bottom: 0; height: 48px; z-index: 800; background: var(--tb); backdrop-filter: blur(10px); display: flex; align-items: stretch; }
+#taskbar button { border: 0; background: transparent; color: #fff; padding: 0; }
+#startbtn { width: 48px; display: flex; align-items: center; justify-content: center; }
+#startbtn svg { width: 22px; height: 22px; }
+#startbtn:hover, #startbtn.on { background: rgba(255,255,255,.12); color: #8cc8ff; }
+#tasks { flex: 1; display: flex; overflow-x: auto; overflow-y: hidden; }
+.tk { width: 160px; max-width: 30vw; display: flex; align-items: center; gap: 8px; padding: 0 12px !important; font-size: 13px; white-space: nowrap; overflow: hidden; position: relative; }
+.tk svg { width: 20px; height: 20px; flex: none; }
+.tk span { overflow: hidden; text-overflow: ellipsis; }
+.tk::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: 0; height: 2px; background: #8cc8ff; opacity: .7; }
+.tk:hover { background: rgba(255,255,255,.1) !important; }
+.tk.on { background: rgba(255,255,255,.16) !important; }
+.tk.on::after { left: 0; right: 0; opacity: 1; }
+.tray { display: flex; align-items: center; gap: 14px; padding: 0 12px; font-size: 12px; }
+#link { color: #6ee36e; font-size: 12px; }
+#link.off { color: #ff6b6b; }
+#showdesk { width: 10px; border-left: 1px solid rgba(255,255,255,.25) !important; }
+#showdesk:hover { background: rgba(255,255,255,.15) !important; }
+#clock { display: flex; flex-direction: column; align-items: center; line-height: 1.25; }
+#clock b { font-weight: normal; }
+#startmenu { position: fixed; left: 0; bottom: 48px; z-index: 790; width: 320px; max-height: calc(100vh - 60px); overflow: auto;
+  background: rgba(24, 30, 40, .96); backdrop-filter: blur(12px); box-shadow: 0 0 30px rgba(0,0,0,.5); padding: 14px 0 0; }
+.sm-user { display: flex; gap: 12px; align-items: center; padding: 6px 16px 14px; border-bottom: 1px solid rgba(255,255,255,.1); }
+.sm-user .dim { color: #9aa7b4; font-size: 12px; }
+.avatar { width: 40px; height: 40px; border-radius: 50%; background: #2b78d0; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex: none; }
+.sma { display: flex; gap: 12px; align-items: center; padding: 9px 16px; cursor: pointer; color: #fff; }
+.sma:hover { background: rgba(255,255,255,.1); }
+.sma svg { width: 24px; height: 24px; }
+.sm-foot { display: flex; border-top: 1px solid rgba(255,255,255,.1); margin-top: 8px; }
+.sm-foot button { flex: 1; background: transparent; border: 0; color: #fff; padding: 12px; font-size: 13px; }
+.sm-foot button:hover { background: rgba(255,255,255,.1); color: #fff; }
+
+/* 对话框（新邮件、权限不足） */
+.desk .modal-bg { background: rgba(0,0,0,.35); z-index: 850; }
+.desk .modal { background: #fff; color: var(--wtext); border: 1px solid var(--accent); box-shadow: 0 10px 40px rgba(0,0,0,.5); font-family: inherit; padding: 0; animation: wopen .14s ease-out; }
+.desk .modal .kicker { color: #fff; background: var(--accent); padding: 7px 12px; margin: 0; letter-spacing: .05em; font: 13px inherit; }
+.desk .modal h2 { color: var(--wtext); padding: 14px 18px 0; margin: 0 0 8px; font-size: 17px; }
+.desk .modal .body { padding: 0 18px; color: var(--wtext); }
+.desk .modal .row { padding: 14px 18px 16px; margin: 0; justify-content: flex-end; }
+.desk .modal button { color: var(--wtext); background: #e1e1e1; border-color: #adadad; min-width: 90px; }
+.desk .modal button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* 开机、蓝屏 */
+#boot { position: fixed; inset: 0; z-index: 950; background: #000; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; cursor: pointer; }
+#boot svg { width: 96px; height: 96px; color: #6fb6ff; }
+#boot .nm { font: 300 26px "Segoe UI", "Microsoft YaHei UI", sans-serif; letter-spacing: .2em; }
+#boot .dots { position: relative; width: 48px; height: 48px; }
+#boot .dots i { position: absolute; left: 50%; top: 0; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: #fff; transform-origin: 3px 24px; animation: orbit 1.6s cubic-bezier(.5,.15,.35,.85) infinite; }
+#boot .dots i:nth-child(2) { animation-delay: .12s; } #boot .dots i:nth-child(3) { animation-delay: .24s; }
+#boot .dots i:nth-child(4) { animation-delay: .36s; } #boot .dots i:nth-child(5) { animation-delay: .48s; }
+@keyframes orbit { to { transform: rotate(360deg); } }
+#boot .msg2 { font-size: 13px; color: #aaa; }
+#boot .skip { position: absolute; right: 18px; bottom: 14px; color: #666; font-size: 12px; }
+#bsod { position: fixed; inset: 0; z-index: 990; background: #0a64c8; color: #fff; padding: 12vh 10vw; font: 300 20px/1.6 "Segoe UI", "Microsoft YaHei UI", sans-serif; cursor: none; }
+#bsod .sad { font-size: 120px; line-height: 1; margin-bottom: 30px; }
+#bsod .pc { margin: 24px 0; }
+#bsod .code { font-size: 14px; margin-top: 30px; }
+
+@media (max-width: 760px) {
+  #icons { grid-auto-flow: row; grid-template-columns: repeat(4, 1fr); grid-template-rows: none; right: 6px; bottom: auto; gap: 6px; }
+  .ico { width: auto; }
+  .win { left: 0 !important; top: 0 !important; width: 100% !important; height: 100% !important; border: 0; min-width: 0; }
+  .tbar .mx { display: none; }
+  .mail { grid-template-columns: 1fr; grid-template-rows: 40% 60%; }
+  .mlist { border-right: 0; border-bottom: 1px solid var(--wline); }
+  .tk { width: 52px; padding: 0 !important; justify-content: center; }
+  .tk span { display: none; }
+  .tray { gap: 8px; padding: 0 8px; }
+  #showdesk { width: 16px; }
+  #startmenu { width: 100%; }
+  .mark svg { width: 150px; height: 150px; }
+  #bsod { font-size: 16px; padding: 10vh 8vw; }
+  #bsod .sad { font-size: 80px; }
+}

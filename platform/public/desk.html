@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>办公电脑</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/desk.css">
+</head>
+<body class="desk">
+<div id="pv"></div>
+<div id="desktop">
+  <div class="mark"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="3"/><path d="M50 14 59 40 87 40 64 57 73 84 50 67 27 84 36 57 13 40 41 40Z" fill="none" stroke="currentColor" stroke-width="3"/></svg><div>METROPOLITAN POLICE DEPARTMENT</div></div>
+  <div id="icons"></div>
+  <div id="wins"></div>
+</div>
+
+<div id="startmenu" hidden>
+  <div class="sm-user"><span class="avatar" id="smav"></span><div><b id="smname"></b><div class="dim" id="smsub"></div></div></div>
+  <div id="smapps"></div>
+  <div class="sm-foot">
+    <button id="lowbtn">简化特效：关</button>
+    <button id="out">退出登录</button>
+  </div>
+</div>
+
+<div id="taskbar">
+  <button id="startbtn" title="开始"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 6l1.8 4.2 4.4.3-3.4 2.8 1.1 4.3L12 15.3 8.1 17.6l1.1-4.3-3.4-2.8 4.4-.3Z" fill="currentColor"/></svg></button>
+  <div id="tasks"></div>
+  <div class="tray">
+    <span id="link" title="网络">●</span>
+    <span id="clock"><b id="ctime">--:--</b><span id="cdate"></span></span>
+  </div>
+  <button id="showdesk" title="显示桌面"></button>
+</div>
+
+<div id="modal"></div>
+<div id="boot" hidden></div>
+<div id="bsod" hidden></div>
+
+<script src="/static/common.js"></script>
+<script src="/static/desk.js"></script>
+</body>
+</html>

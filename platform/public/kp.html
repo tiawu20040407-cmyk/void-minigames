@@ -53,7 +53,7 @@
   <h1>KP 控制台</h1>
   <div class="sub" id="sub"></div>
   <div class="toc">
-    <a href="#p-players">玩家</a><a href="#p-vitals">体征</a><a href="#p-scans">扫描条目</a><a href="#p-hud">仿生人界面</a><a href="#p-presets">场景预设</a><a href="#p-msg">发送消息</a><a href="#p-entries">游戏入口</a>
+    <a href="#p-players">玩家</a><a href="#p-vitals">体征</a><a href="#p-scans">扫描条目</a><a href="#p-glitch">界面故障</a><a href="#p-hud">仿生人界面</a><a href="#p-desk">办公电脑</a><a href="#p-presets">场景预设</a><a href="#p-msg">发送消息</a><a href="#p-entries">游戏入口</a>
     <a href="#p-invites">邀请码</a><a href="#p-test">测试账号</a><a href="#p-sys">系统状态</a><a href="#p-log">登录记录</a>
   </div>
 
@@ -85,23 +85,42 @@
     <div id="scans"></div>
   </div>
 
-  <div class="panel" id="p-hud">
-    <h2>仿生人界面</h2>
-    <h2 style="font-size:14px;margin-top:4px">界面故障</h2>
-    <div class="dim" style="font-size:13px">对仿生人玩家触发。雪花错字 2 秒、黑屏 3 秒，可附带一行文字。人类玩家的蓝屏在 3b 步加入。</div>
+  <div class="panel" id="p-glitch">
+    <h2>界面故障</h2>
+    <div class="dim" style="font-size:13px">仿生人：雪花错字 2 秒或黑屏 3 秒，附带文字显示在画面中间。人类：办公电脑蓝屏 3 秒，附带文字显示为“终止代码”。只推送给在线的玩家，不保存。</div>
     <div class="hudrow" style="margin-top:8px" data-keep id="glbox">
       <select id="glu"></select>
-      <select id="gle"><option value="snow">雪花错字（2 秒）</option><option value="black">黑屏（3 秒）</option></select>
+      <select id="gle"></select>
       <input id="glt" maxlength="60" placeholder="附带文字（可不填）" style="flex:1;min-width:180px">
       <button class="primary" id="glgo">触发</button>
     </div>
     <div class="msg" id="glm"></div>
-    <h2 style="font-size:14px;margin-top:16px">型号与颜色</h2>
+  </div>
+
+  <div class="panel" id="p-hud">
+    <h2>仿生人界面</h2>
+    <h2 style="font-size:14px;margin-top:4px">型号与颜色</h2>
     <div id="models" data-keep></div>
     <h2 style="font-size:14px;margin-top:16px">环境台词池</h2>
     <div class="dim" style="font-size:13px">没有开放的扫描条目时，扫描随机显示其中一句。一行一句。</div>
     <div data-keep id="ambbox"><textarea id="amb" rows="5"></textarea>
       <div class="row"><button class="primary" id="ambsave">保存台词</button></div><div class="msg" id="ambm"></div></div>
+  </div>
+
+  <div class="panel" id="p-desk">
+    <h2>办公电脑（人类玩家）</h2>
+    <div class="hudrow" data-keep id="dnbox"><span>系统名</span><input id="dname" maxlength="20" style="min-width:160px"><button class="primary" id="dnsave">保存</button><span class="msg" id="dnm" style="margin:0"></span></div>
+    <h2 style="font-size:14px;margin-top:16px">回收站文件</h2>
+    <div class="dim" style="font-size:13px">放线索或彩蛋。开放 / 隐藏在上面“玩家”里按人设置（人类玩家卡片里的“回收站·文件名”），场景预设会一起保存。</div>
+    <div data-keep id="trnew">
+      <label>文件名</label><input id="trt" maxlength="40" placeholder="例如：会议记录_旧.txt">
+      <label>内容</label><textarea id="trb" rows="4" maxlength="5000"></textarea>
+      <div class="row"><button class="primary" id="tradd">新建文件</button></div>
+      <div class="msg" id="trm"></div>
+    </div>
+    <div id="trash"></div>
+    <h2 style="font-size:14px;margin-top:16px">玩家记事本（只读）</h2>
+    <div id="notes"></div>
   </div>
 
   <div class="panel" id="p-presets">
@@ -192,7 +211,7 @@ async function load() {
 function render() {
   $('#sub').textContent = `已登录：${S.kpName}`;
   $('#ho').innerHTML = Object.entries(S.hos).map(([k, v]) => `<option value="${k}">${k}（${v.kind}）</option>`).join('');
-  renderUsers(); renderVitals(); renderScans(); renderHud(); renderPresets(); renderCompose(); renderSent(); renderEntries(); renderInvites(); renderLog();
+  renderUsers(); renderVitals(); renderScans(); renderHud(); renderDesk(); renderPresets(); renderCompose(); renderSent(); renderEntries(); renderInvites(); renderLog();
 }
 
 function sortedUsers() { return S.users.slice().sort((a, b) => (a.test - b.test) || a.ho.localeCompare(b.ho)); }
@@ -214,7 +233,11 @@ function renderUsers() {
       const k = 'scan:' + sc.id, v = (S.unlocks[u.id] && S.unlocks[u.id][k]) || 'hidden';
       return `<label>扫描·${esc(sc.title)}<select class="s-${v}" data-unlock="${u.id}" data-entry="${esc(k)}">` +
         ['hidden', 'open'].map(s => `<option value="${s}" ${s === v ? 'selected' : ''}>${STATE_NAME[s]}</option>`).join('') + '</select></label>';
-    }).join('') : '');
+    }).join('') : S.trash.map(t => {
+      const k = 'trash:' + t.id, v = (S.unlocks[u.id] && S.unlocks[u.id][k]) || 'hidden';
+      return `<label>回收站·${esc(t.title)}<select class="s-${v}" data-unlock="${u.id}" data-entry="${esc(k)}">` +
+        ['hidden', 'open'].map(s => `<option value="${s}" ${s === v ? 'selected' : ''}>${STATE_NAME[s]}</option>`).join('') + '</select></label>';
+    }).join(''));
     return `<div class="player" data-id="${u.id}">
       <div class="hd">
         <span class="dot ${u.online ? 'on' : ''}" title="${u.online ? '在线' : '离线'}"></span>
@@ -298,7 +321,9 @@ function renderHud() {
   const andro = sortedUsers().filter(isAndroid);
   if (!isDirty('#glbox')) {
     const cur = $('#glu').value;
-    $('#glu').innerHTML = andro.map(u => `<option value="${u.id}" ${String(u.id) === cur ? 'selected' : ''}>${esc(u.ho)} ${esc(u.sheet.name)}${u.test ? '（测试）' : ''}</option>`).join('') || '<option value="">没有仿生人玩家</option>';
+    const ok = sortedUsers().filter(u => u.status === 'approved');
+    $('#glu').innerHTML = ok.map(u => `<option value="${u.id}" ${String(u.id) === cur ? 'selected' : ''}>${esc(u.ho)} ${esc(u.sheet.name)}${u.test ? '（测试）' : ''}</option>`).join('') || '<option value="">没有已审核的玩家</option>';
+    glEffects();
   }
   if (!isDirty('#models')) $('#models').innerHTML = andro.length ? andro.map(u => `<div class="hudrow" data-mid2="${u.id}">
       <span class="tag">${esc(u.ho)}</span><span style="min-width:120px">${esc(u.sheet.name)}${u.test ? '（测试）' : ''}</span>
@@ -306,6 +331,35 @@ function renderHud() {
       ${u.ho === 'HO4' ? `颜色<select name="color"><option value="amber" ${u.hudColor === 'amber' ? 'selected' : ''}>琥珀</option><option value="green" ${u.hudColor === 'green' ? 'selected' : ''}>绿色</option></select>` : '<span class="dim">颜色：青白（新型机）</span>'}
       <button class="small primary" data-msave="${u.id}">保存</button></div>`).join('') : '<div class="dim">还没有仿生人玩家。</div>';
   if (!isDirty('#ambbox')) $('#amb').value = S.hudAmbient.join('\n');
+}
+
+// 界面故障的效果随目标变化：仿生人雪花/黑屏，人类蓝屏
+function glEffects() {
+  const u = S.users.find(x => String(x.id) === $('#glu').value);
+  const cur = $('#gle').value;
+  const opts = !u ? [] : isAndroid(u) ? [['snow', '雪花错字（2 秒）'], ['black', '黑屏（3 秒）']] : [['bsod', '蓝屏（3 秒）']];
+  $('#gle').innerHTML = opts.map(([v, n]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${n}</option>`).join('');
+}
+document.addEventListener('change', e => { if (e.target.id === 'glu') glEffects(); });
+
+function renderDesk() {
+  if (!isDirty('#dnbox')) $('#dname').value = S.deskName;
+  const byId = Object.fromEntries(S.users.map(u => [u.id, u]));
+  if (!S.trash.length) $('#trash').innerHTML = '<div class="dim" style="margin-top:10px">回收站里还没有文件。</div>';
+  else keepRender($('#trash'), '.scanitem', 'data-tr', S.trash.slice().reverse(), t => {
+    const who = Object.entries(S.unlocks).filter(([uid, st]) => st['trash:' + t.id] === 'open' && byId[uid])
+      .map(([uid]) => `${byId[uid].ho} ${byId[uid].sheet.name}`);
+    return `<div class="scanitem" data-keep data-tr="${esc(t.id)}">
+      <input name="tt" maxlength="40" value="${esc(t.title)}">
+      <textarea name="tb" rows="3" maxlength="5000" style="margin-top:6px">${esc(t.body)}</textarea>
+      <div class="row" style="margin-top:8px"><button class="small primary" data-trsave="${esc(t.id)}">保存</button>
+        <button class="small danger" data-trdel="${esc(t.id)}">删除</button><span class="dim" style="font-size:12px">修改于 ${fmtTime(t.updatedAt)}</span></div>
+      <div class="who">${who.length ? '<span class="tag good">已开放</span> ' + esc(who.join('、')) : '<span class="dim">对所有人隐藏</span>'}</div></div>`;
+  });
+  const hum = sortedUsers().filter(u => !isAndroid(u));
+  $('#notes').innerHTML = hum.length ? hum.map(u => `<div class="sentmsg"><b>${esc(u.ho)} ${esc(u.sheet.name)}${u.test ? '（测试）' : ''}</b>
+    <span class="dim" style="font-size:12px">${u.notesAt ? '最后保存 ' + fmtTime(u.notesAt) : '还没写过'}</span>
+    <div class="body" data-notes="${u.id}">${esc(u.notes) || '<span class="dim">（空）</span>'}</div></div>`).join('') : '<div class="dim">还没有人类玩家。</div>';
 }
 
 function renderPresets() {
@@ -446,13 +500,40 @@ document.addEventListener('click', async e => {
     await api('/api/kp/scan/delete', { id: b.dataset.scdel });
     return load();
   }
-  // 仿生人界面
+  // 办公电脑
+  if (b.id === 'dnsave') {
+    const r = await api('/api/kp/desk', { name: $('#dname').value });
+    say('#dnm', r.ok ? '已保存' : r.error, r.ok ? 'good' : 'bad');
+    if (r.ok) { clean($('#dnbox')); load(); }
+    return;
+  }
+  if (b.id === 'tradd') {
+    const r = await api('/api/kp/trash/save', { title: $('#trt').value, body: $('#trb').value });
+    if (!r.ok) return say('#trm', r.error);
+    say('#trm', '已新建。在上面“玩家”里对人类玩家设为开放。', 'good');
+    $('#trt').value = ''; $('#trb').value = ''; clean($('#trnew'));
+    return load();
+  }
+  if (b.dataset.trsave) {
+    const it = b.closest('.scanitem');
+    const r = await api('/api/kp/trash/save', { id: b.dataset.trsave, title: $('[name=tt]', it).value, body: $('[name=tb]', it).value });
+    if (!r.ok) return alert(r.error);
+    clean(it);
+    return load();
+  }
+  if (b.dataset.trdel) {
+    if (!confirm('删除这个回收站文件？玩家那边也会消失，场景预设里的记录一起删除。')) return;
+    await api('/api/kp/trash/delete', { id: b.dataset.trdel });
+    return load();
+  }
+  // 界面故障
   if (b.id === 'glgo') {
     const uid = Number($('#glu').value);
     if (!uid) return say('#glm', '没有可选的玩家');
     const r = await api('/api/kp/glitch', { uid, effect: $('#gle').value, text: $('#glt').value });
     if (!r.ok) return say('#glm', r.error);
     say('#glm', r.online ? '已触发' : '已发送，但对方现在不在线，不会看到', r.online ? 'good' : 'bad');
+    clean($('#glbox'));
     return;
   }
   if (b.dataset.msave) {
@@ -483,7 +564,7 @@ document.addEventListener('click', async e => {
     const v = await api('/api/kp/preset/view', { id: b.dataset.papply });
     if (!v.ok) return alert(v.error);
     const byId = Object.fromEntries(S.users.map(u => [u.id, u]));
-    const names = Object.fromEntries(S.entries.map(x => [x.id, x.name]).concat(S.scans.map(x => ['scan:' + x.id, '扫描·' + x.title])));
+    const names = Object.fromEntries(S.entries.map(x => [x.id, x.name]).concat(S.scans.map(x => ['scan:' + x.id, '扫描·' + x.title])).concat(S.trash.map(x => ['trash:' + x.id, '回收站·' + x.title])));
     const lines = Object.entries(v.preset.states).filter(([uid]) => byId[uid]).map(([uid, st]) =>
       `${byId[uid].ho} ${byId[uid].sheet.name}：` + Object.entries(st).filter(([eid]) => names[eid]).map(([eid, s]) => `${names[eid]}=${STATE_NAME[s]}`).join('，'));
     if (!confirm(`应用预设「${v.preset.name}」？\n\n${lines.join('\n') || '（预设里没有玩家）'}\n\n预设保存后才加入的玩家或游戏不受影响。`)) return;

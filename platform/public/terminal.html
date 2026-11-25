@@ -35,8 +35,8 @@ async function render() {
   if (!r.user) return location.replace(AS ? '/kp' : '/');
   if (r.user.role === 'kp') return location.replace('/kp');
   me = r.user;
-  // 审核通过的仿生人改看 HUD（第 3b 步人类换成办公电脑）
-  if (me.status === 'approved' && (me.ho === 'HO2' || me.ho === 'HO4')) return location.replace('/hud' + location.search);
+  // 审核通过后：仿生人看 HUD，人类看办公电脑。这个页面只剩待审核时的角色卡
+  if (me.status === 'approved') return location.replace((me.ho === 'HO2' || me.ho === 'HO4' ? '/hud' : '/desk') + location.search);
   if (r.preview) {
     $('#pv').innerHTML = `<div class="preview-bar">预览：${esc(me.username)}（${esc(me.ho)}）看到的画面 · 只读</div>`;
     $('#nav').innerHTML = '<a href="/kp">返回控制台</a>';

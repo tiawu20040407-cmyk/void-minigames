@@ -99,7 +99,7 @@ function notifyDesk(what = 'desk') {
 function isAndroid(u) { return !!u && u.role === 'player' && (u.ho === 'HO2' || u.ho === 'HO4'); }
 function fillHudDefaults(u) {
   if (u.model === undefined) u.model = u.ho === 'HO2' ? 'BR800' : '';
-  if (!['amber', 'green'].includes(u.hudColor)) u.hudColor = 'amber';
+  if (!['grey', 'green'].includes(u.hudColor)) u.hudColor = 'grey'; // 旧型机：灰白（默认）或淡绿。早期的 amber 自动改成 grey
   if (!u.vitals || typeof u.vitals !== 'object') u.vitals = { hr: null, bp: null, rr: null };
 }
 // 搭档：HO1—HO2、HO3—HO4。测试账号只和测试账号配对；有多个时取已审核、最早注册的
@@ -631,7 +631,7 @@ route('POST', '/api/kp/user', async (req, res, body) => {
     try { u.model = cleanText(body.model, 20, '型号', false); } catch (e) { return err(res, 400, e.message); }
   }
   if (body.hudColor !== undefined) {
-    if (!['amber', 'green'].includes(body.hudColor)) return err(res, 400, '颜色不正确');
+    if (!['grey', 'green'].includes(body.hudColor)) return err(res, 400, '颜色不正确');
     u.hudColor = body.hudColor;
   }
   if (body.password) {

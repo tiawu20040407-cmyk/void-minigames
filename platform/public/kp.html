@@ -328,7 +328,7 @@ function renderHud() {
   if (!isDirty('#models')) $('#models').innerHTML = andro.length ? andro.map(u => `<div class="hudrow" data-mid2="${u.id}">
       <span class="tag">${esc(u.ho)}</span><span style="min-width:120px">${esc(u.sheet.name)}${u.test ? '（测试）' : ''}</span>
       型号<input name="model" maxlength="20" value="${esc(u.model || '')}" placeholder="${u.ho === 'HO2' ? 'BR800' : '旧型机'}">
-      ${u.ho === 'HO4' ? `颜色<select name="color"><option value="amber" ${u.hudColor === 'amber' ? 'selected' : ''}>琥珀</option><option value="green" ${u.hudColor === 'green' ? 'selected' : ''}>绿色</option></select>` : '<span class="dim">颜色：青白（新型机）</span>'}
+      ${u.ho === 'HO4' ? `颜色<select name="color"><option value="grey" ${u.hudColor === 'grey' ? 'selected' : ''}>灰白</option><option value="green" ${u.hudColor === 'green' ? 'selected' : ''}>淡绿</option></select>` : '<span class="dim">颜色：青白（新型机）</span>'}
       <button class="small primary" data-msave="${u.id}">保存</button></div>`).join('') : '<div class="dim">还没有仿生人玩家。</div>';
   if (!isDirty('#ambbox')) $('#amb').value = S.hudAmbient.join('\n');
 }

@@ -326,6 +326,7 @@ const PAGES = {
   '/register': 'register.html',
   '/intranet': 'intranet.html',
   '/terminal': 'terminal.html',
+  '/hud': 'hud.html',
   '/kp': 'kp.html',
   '/kp/login': 'kp-login.html',
   '/kp/setup': 'kp-setup.html',
@@ -892,16 +893,9 @@ const server = http.createServer(async (req, res) => {
     // 页面
     if (PAGES[p]) {
       if (p === '/kp/setup' && kpUser()) return notFound(res);
-      let page = PAGES[p];
-      // 已审核的仿生人玩家看 HUD，其他人（人类、待审核）看普通终端。第 3b 步人类换成办公电脑
-      if (p === '/terminal') {
-        const v = viewer(req, url);
-        if (v && isAndroid(v.user) && v.user.status === 'approved') page = 'hud.html';
-        // 同一个网址会给出两种页面，不能让浏览器用缓存
-        delete req.headers['if-modified-since'];
-        return serveFile(req, res, path.join(PUBLIC_DIR, page), 'no-store');
-      }
-      return serveFile(req, res, path.join(PUBLIC_DIR, page), 'no-cache');
+      // 每个网址只对应一个页面（不按身份换内容），这样任何一层缓存都不会把一个人的页面发给别人。
+      // 已审核的仿生人打开 /terminal 时由页面自己转到 /hud，反过来也一样
+      return serveFile(req, res, path.join(PUBLIC_DIR, PAGES[p]), 'no-cache');
     }
 
     // 公共静态资源（样式、脚本、图标）

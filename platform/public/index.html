@@ -14,7 +14,12 @@
   <div class="sub">AUTHORIZED PERSONNEL ONLY</div>
 
   <div class="notice" id="kpnote" style="display:none"></div>
-  <form class="panel" id="f">
+  <div class="panel" id="cur" hidden>
+    <div>当前已登录：<b id="curname"></b></div>
+    <div class="dim" style="font-size:13px;margin-top:4px">同一个浏览器（包括它的所有匿名标签页）同时只能登录一个玩家账号。要测试另一个玩家，请换一个浏览器。</div>
+    <div class="row"><a class="btn primary" id="go" href="/terminal" style="flex:1">进入终端</a><button id="switch" style="flex:1">切换账号</button></div>
+  </div>
+  <form class="panel" id="f" hidden>
     <label for="u">账号</label>
     <input id="u" name="username" autocomplete="username" required>
     <label for="p">密码</label>
@@ -34,12 +39,24 @@
 <div class="foot">© METROPOLITAN POLICE DEPT. &nbsp;·&nbsp; <a href="/kp/login">系统管理</a></div>
 <script src="/static/common.js"></script>
 <script>
-(async () => {
+// 已有玩家登录时不自动跳转：显示是谁，可以进入终端或切换账号
+async function init() {
   const me = await api('/api/me');
-  if (me.user && me.user.role === 'player') return location.replace('/terminal');
-  // 只有 KP 登录时不跳转，方便在同一个浏览器里再登录一个玩家账号
-  if (me.user && me.user.role === 'kp') $('#kpnote').style.display = 'block', $('#kpnote').innerHTML = '已以 KP 身份登录。<a href="/kp">返回控制台</a>，或在下面登录玩家账号测试。';
-})();
+  const u = me.user;
+  if (u && u.role === 'player') {
+    $('#curname').textContent = `${u.sheet && u.sheet.name ? u.sheet.name : u.username}（${u.ho} · ${u.username}）`;
+    $('#cur').hidden = false; $('#f').hidden = true;
+    return;
+  }
+  $('#cur').hidden = true; $('#f').hidden = false;
+  if (u && u.role === 'kp') $('#kpnote').style.display = 'block', $('#kpnote').innerHTML = '已以 KP 身份登录。<a href="/kp">返回控制台</a>，或在下面登录玩家账号测试。';
+}
+init();
+$('#switch').addEventListener('click', async () => {
+  await api('/api/logout', { kind: 'player' });
+  await init();
+  $('#u').focus();
+});
 $('#f').addEventListener('submit', async e => {
   e.preventDefault();
   say('#m', '');

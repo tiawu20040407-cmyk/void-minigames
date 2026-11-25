@@ -38,8 +38,8 @@ async function load() {
     fields.length ? null : api('/api/meta'),
   ]);
   if (!r.user) return location.replace(AS ? '/kp' : '/');
-  // 不再是已审核的仿生人（例如 KP 退回修改）：重新载入，服务器会给出普通终端
-  if (!h.ok || r.user.status !== 'approved' || !(r.user.ho === 'HO2' || r.user.ho === 'HO4')) return location.reload();
+  // 不是已审核的仿生人（人类、KP 退回修改、换了账号）：回到普通终端
+  if (!h.ok || r.user.role !== 'player' || r.user.status !== 'approved' || !(r.user.ho === 'HO2' || r.user.ho === 'HO4')) return location.replace('/terminal' + location.search);
   if (meta) fields = meta.fields || [];
   me = r.user; hud = h; sessionT = r.sessionT || 0;
   entries = ent.ok ? ent : { entries: [], locked: [] };

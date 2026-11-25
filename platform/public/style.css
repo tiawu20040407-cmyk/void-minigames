@@ -50,8 +50,8 @@ input.code { font-family: var(--mono); letter-spacing: .1em; text-transform: upp
 button, .btn { display: inline-block; background: transparent; color: var(--text); border: 1px solid var(--line-hi);
   padding: 9px 16px; font: 14px var(--sans); cursor: pointer; letter-spacing: .05em; text-align: center; }
 button:hover, .btn:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
-button.primary { background: var(--accent); color: #0b0d10; border-color: var(--accent); font-weight: 600; }
-button.primary:hover { filter: brightness(1.1); color: #0b0d10; }
+button.primary, .btn.primary { background: var(--accent); color: #0b0d10; border-color: var(--accent); font-weight: 600; }
+button.primary:hover, .btn.primary:hover { filter: brightness(1.1); color: #0b0d10; }
 button.small, .btn.small { padding: 4px 10px; font-size: 13px; }
 button.danger:hover { border-color: var(--bad); color: var(--bad); }
 button:disabled { opacity: .5; cursor: default; }

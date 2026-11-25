@@ -23,7 +23,8 @@ platform/
 | `/` | 登录页 |
 | `/register` | 新职员登记（邀请码 + 角色卡） |
 | `/intranet` | 警察厅内网（访客可看） |
-| `/terminal` | 玩家终端（已审核的仿生人 HO2、HO4 看到 HUD：`hud.html` + `hud.js` + `hud.css`） |
+| `/terminal` | 玩家终端（已审核的仿生人 HO2、HO4 打开后自动转到 `/hud`） |
+| `/hud` | 仿生人 HUD（`hud.html` + `hud.js` + `hud.css`；不是已审核仿生人时自动转回 `/terminal`） |
 | `/kp/login` | KP 登录（账号 + 密码 + 密令） |
 | `/kp` | KP 控制台 |
 | `/kp/setup` | KP 初始化，只在还没有 KP 账号时存在 |

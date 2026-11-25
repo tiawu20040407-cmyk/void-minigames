@@ -243,13 +243,14 @@ const PART = new Pool(520, () => ({x:0,y:0,vx:0,vy:0,life:0,c:0}));
    没填或加载失败就用代码合成的占位音。之后由编辑器“素材”页修改。
    ================================================================ */
 const SOUND_FILES = {
-  shot:'', hit:'', pop:'', small:'', big:'', shield:'', hurt:'',
+  shot:'shot.wav', hit:'', pop:'', small:'', big:'', shield:'', hurt:'',
   warn:'', laser:'', link:'', win:'', lose:'', click:'', wave:'',
 };
 const BGM_FILES = { stage:'', boss:'' };
+const SOUND_VOL = { shot:0.35 };   // 各插槽的单独音量（默认 1）。射击最频繁，调小
 
 const SND = {ctx:null, sfx:null, bgm:null, buf:{}, last:{}, vol:{sfx:0.8, bgm:0.5}, mute:false, bgmEl:null, bgmName:''};
-const GAP = {shot:0.07, hit:0.05, pop:0.04, small:0.06, warn:0.15};   // 同一声音的最短间隔，防止叠成噪音
+const GAP = {shot:0.09, hit:0.05, pop:0.04, small:0.06, warn:0.15};   // 同一声音的最短间隔，防止叠成噪音
 function sndInit(){             // 必须在点击里调用（手机浏览器的要求）
   if (SND.ctx){ if (SND.ctx.state === 'suspended') SND.ctx.resume(); return; }
   const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
@@ -275,7 +276,8 @@ function sfx(name){
   const c = SND.ctx; if (!c || SND.mute) return;
   const t = c.currentTime, g = GAP[name] || 0;
   if (g && SND.last[name] && t - SND.last[name] < g) return; SND.last[name] = t;
-  if (SND.buf[name]){ const s = c.createBufferSource(); s.buffer = SND.buf[name]; s.connect(SND.sfx); s.start(); return; }
+  if (SND.buf[name]){ const s = c.createBufferSource(), v = c.createGain(); s.buffer = SND.buf[name];
+    v.gain.value = SOUND_VOL[name] ?? 1; s.connect(v); v.connect(SND.sfx); s.start(); return; }
   SYNTH[name] && SYNTH[name](c, t);
 }
 // ---- 合成占位音 ----
@@ -1073,7 +1075,7 @@ requestAnimationFrame(loop);
 
 // 测试接口
 window.__void = {get G(){return G;}, get state(){return state;}, set state(v){state=v;}, get lastResult(){return lastResult;},
-  BUL, newGame, update, hurt, setSkill:v=>skill=v, setStage:v=>stageChoice=v, setDiff:v=>CONFIG.difficulty=v, draw};
+  BUL, SND, newGame, update, hurt, setSkill:v=>skill=v, setStage:v=>stageChoice=v, setDiff:v=>CONFIG.difficulty=v, draw};
 }
 </script>
 </body>

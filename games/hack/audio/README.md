@@ -1,6 +1,6 @@
 # 音频文件
 
-把 mp3 放在这个目录，然后在 `index.html` 的 `SOUND_FILES` / `BGM_FILES` 里填上文件名。
+把 mp3 或 wav 放在这个目录（很短的音效建议用 wav，没有 mp3 开头的空白），然后在 `index.html` 的 `SOUND_FILES` / `BGM_FILES` 里填上文件名。
 没填的插槽会使用代码合成的占位音。
 
 | 插槽 | 用途 |

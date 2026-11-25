@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VOID // HUD</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/hud.css">
+</head>
+<body class="hud c-cyan">
+<div id="pv"></div>
+<div class="hud-lines"></div>
+<div class="hud-sweep"></div>
+
+<header class="bar">
+  <div class="id"><span class="model gl" id="model">—</span><span class="nm gl" id="nm"></span></div>
+  <div class="clock" id="clock">--:--:--</div>
+  <div class="right">
+    <span class="link gl" id="link">链路建立中</span>
+    <nav id="nav"><a href="/intranet">警察厅内网</a><a href="#" id="lowbtn">简化特效</a><a href="#" id="out">退出</a></nav>
+  </div>
+</header>
+
+<main id="main" class="hgrid">
+  <section class="blk" id="b-vitals">
+    <h2><span class="gl">搭档体征</span><small>PARTNER VITALS</small></h2>
+    <div class="ptop"><span class="pname gl" id="pname">—</span><span class="tier gl" id="tier"></span></div>
+    <canvas id="ecg"></canvas>
+    <div class="vit">
+      <div><span class="k">心率 BPM</span><b class="gl" id="v-hr">--</b></div>
+      <div><span class="k">血压 mmHg</span><b class="gl" id="v-bp">--</b></div>
+      <div><span class="k">呼吸 /min</span><b class="gl" id="v-rr">--</b></div>
+    </div>
+  </section>
+
+  <section class="blk" id="b-scan">
+    <h2><span class="gl">扫描</span><small>SCAN</small></h2>
+    <div class="row" style="margin-top:0"><button class="scanbtn" id="scanbtn">扫描</button><span class="newdata" id="newdata" hidden>检测到新数据</span></div>
+    <div id="scanout"><div class="hint">点击“扫描”读取周边数据。</div></div>
+  </section>
+
+  <section class="blk" id="b-prog">
+    <h2><span class="gl">程序</span><small>PROGRAMS</small></h2>
+    <div id="progs"></div>
+    <div class="msg" id="lm"></div>
+  </section>
+
+  <section class="blk" id="b-comm">
+    <h2><span class="gl">通讯记录</span><small>COMMS</small></h2>
+    <div id="msgs"></div>
+  </section>
+
+  <section class="blk" id="b-self">
+    <h2><span class="gl">机体参数</span><small>UNIT</small></h2>
+    <div id="self"></div>
+  </section>
+</main>
+
+<div id="modal"></div>
+<div id="boot" hidden></div>
+<canvas id="snow" hidden></canvas>
+<div id="black" hidden><div class="t" id="blackt"></div></div>
+<div id="gtext" hidden></div>
+
+<script src="/static/common.js"></script>
+<script src="/static/hud.js"></script>
+</body>
+</html>

@@ -35,6 +35,8 @@ async function render() {
   if (!r.user) return location.replace(AS ? '/kp' : '/');
   if (r.user.role === 'kp') return location.replace('/kp');
   me = r.user;
+  // 审核通过的仿生人改看 HUD：同一个网址，服务器会给出 HUD 页面
+  if (me.status === 'approved' && (me.ho === 'HO2' || me.ho === 'HO4')) return location.reload();
   if (r.preview) {
     $('#pv').innerHTML = `<div class="preview-bar">预览：${esc(me.username)}（${esc(me.ho)}）看到的画面 · 只读</div>`;
     $('#nav').innerHTML = '<a href="/kp">返回控制台</a>';

@@ -7,7 +7,9 @@
 
 覆盖：KP 初始化与登录、邀请码注册、审核、入口三种状态与即时推送、游戏文件访问控制
 （含入口关闭后本局素材仍可加载）、场景预设、秘密消息与已读、预览视角、入口改名与自动发现、
-系统状态、限流、退出后 404。截图存到 /tmp/void-shots/。
+系统状态、限流、退出后 404；第 3a 步仿生人 HUD：开机动画只播一次、搭档体征随 HP 变化且不泄露 HP 数字、
+体征覆盖、扫描条目（隐藏的不发送、开放即时出现、“新”标记、改内容即时更新、环境台词、预设保存扫描状态）、
+界面故障、型号与颜色、退回审核时切回普通终端、手机布局。截图存到 /tmp/void-shots/。
 """
 import json, os, re, shutil, subprocess, sys, tempfile, time, urllib.request
 from playwright.sync_api import sync_playwright
@@ -175,6 +177,8 @@ def run(code):
         pv.screenshot(path=f'{SHOTS}/preview.png', full_page=True)
         pv.close()
 
+        hud_tests(kp, ph, phc, br, errs)
+
         print('入口改名与自动发现')
         row = kp.locator('.entry-row[data-eid=footage]')
         row.locator('[name=ename]').fill('监控录像 · 改名测试')
@@ -203,6 +207,9 @@ def run(code):
         t2 = kpc.new_page(); t2.goto(B + '/'); t2.fill('#u', 'Test-HO2'); t2.fill('#p', ' ' + pw + ' \t'); t2.click('button[type=submit]')
         t2.wait_for_selector('text=测试机')
         check(True, '测试账号可以登录（账号名大小写、密码前后空格不影响）')
+        check(t2.locator('#boot:not([hidden])').count() == 1, '新登录播放开机自检')
+        t2.click('#boot'); t2.wait_for_selector('#boot', state='hidden')
+        check(True, '点击跳过开机自检')
         kp.reload(); kp.wait_for_selector('#users .player')
         check(kp.url == B + '/kp', '同一浏览器登录玩家后 KP 仍在登录状态')
         kp.select_option('select[data-unlock][data-entry=hack]', 'open'); kp.wait_for_selector('select.s-open[data-entry=hack]')
@@ -228,6 +235,155 @@ def run(code):
 
         br.close()
     check(not errs, '页面没有 JS 报错' + (('：' + '; '.join(errs)) if errs else ''))
+
+def hud_tests(kp, ph, phc, br, errs):
+    def kapi(path, body=None):
+        return kp.evaluate('p => api(p)', path) if body is None else kp.evaluate('([p, b]) => api(p, b)', [path, body])
+    def phapi(path):
+        return ph.evaluate('p => api(p)', path)
+
+    print('仿生人 HUD（3a）')
+    ph.goto(B + '/terminal'); ph.wait_for_selector('body.hud')
+    check(ph.locator('#boot:not([hidden])').count() == 0, '同一次登录内刷新不再播开机动画')
+    check(ph.inner_text('#tier') == 'NO LINK', '搭档未注册时显示未连接')
+    check(ph.inner_text('#model') == 'BR800', 'HO2 默认型号 BR800')
+    # 注册搭档 HO1 并审核
+    inv = kapi('/api/kp/invite', {'ho': 'HO1'})['code']
+    r = urllib.request.Request(B + '/api/register', data=json.dumps({'code': inv, 'username': 'kuroda-jr', 'password': 'abcdef',
+        'sheet': {'name': '新人刑警', 'dex': 70, 'hp': 12, 'comp': 30, 'hack': 0, 'spot': 60, 'mech': 0, 'lock': 0, 'idea': 70}}).encode(),
+        headers={'X-Void': '1', 'Content-Type': 'application/json'})
+    human = json.loads(urllib.request.urlopen(r).read())['user']['id']
+    check(ph.inner_text('#tier') == 'NO LINK', '搭档待审核时仍显示未连接')
+    kapi('/api/kp/user', {'id': human, 'status': 'approved'})
+    ph.wait_for_function("document.querySelector('#pname').textContent.includes('新人刑警')", timeout=5000)
+    check(ph.inner_text('#tier') == '无伤', '搭档审核后体征连上，满 HP 为无伤')
+    hr = int(ph.inner_text('#v-hr'))
+    check(60 <= hr <= 85, f'无伤心率在正常范围（{hr}）')
+    h = phapi('/api/hud')
+    check('hpNow' not in json.dumps(h) and 'hp' not in h['partner'], '玩家收到的数据里没有搭档的 HP 数字')
+
+    print('体征面板')
+    kp.reload(); kp.wait_for_selector(f'.vrow[data-vid="{human}"]')
+    row = kp.locator(f'.vrow[data-vid="{human}"]')
+    row.locator('[data-hpd="-5"]').click()
+    ph.wait_for_function("document.querySelector('#tier').textContent === '轻伤'", timeout=5000)
+    check(True, 'HP 12→7：搭档 HUD 一秒内变为轻伤')
+    row = kp.locator(f'.vrow[data-vid="{human}"]')
+    row.locator('[data-hpd="-1"]').click()
+    kp.wait_for_function('([id, v]) => document.querySelector(`.vrow[data-vid="${id}"] .hp`).textContent === v', arg=[human, '6/12'], timeout=5000)
+    check(ph.inner_text('#tier') == '轻伤', 'HP 6/12（正好一半）仍是轻伤')
+    row = kp.locator(f'.vrow[data-vid="{human}"]')
+    row.locator('[data-hpd="-1"]').click()
+    ph.wait_for_function("document.querySelector('#tier').textContent === '重伤'", timeout=5000)
+    check(True, 'HP 5/12（不足一半）：重伤')
+    row = kp.locator(f'.vrow[data-vid="{human}"]')
+    row.locator('[name=hpv]').fill('0'); row.locator('[data-hpset]').click()
+    ph.wait_for_function("document.querySelector('#tier').textContent === '濒死'", timeout=5000)
+    check(True, '设为 0：濒死')
+    row = kp.locator(f'.vrow[data-vid="{human}"]')
+    row.locator('[name=hpv]').fill('99'); row.locator('[data-hpset]').click()
+    kp.wait_for_function('([id, v]) => document.querySelector(`.vrow[data-vid="${id}"] .hp`).textContent === v', arg=[human, '12/12'], timeout=5000)
+    check(True, 'HP 不会超过上限')
+    row = kp.locator(f'.vrow[data-vid="{human}"]')
+    row.locator('[name=hpv]').fill('3'); row.locator('[data-hpset]').click()
+    ph.wait_for_function("document.querySelector('#tier').textContent === '重伤'", timeout=5000)
+    row = kp.locator(f'.vrow[data-vid="{human}"]')
+    row.locator('[name=hr]').fill('130'); row.locator('[name=bp]').fill('140/90'); row.locator('[data-vov]').click()
+    ph.wait_for_function("document.querySelector('#v-hr').textContent === '130'", timeout=5000)
+    check('ov' in ph.get_attribute('#v-hr', 'class') and ph.inner_text('#v-bp') == '140/90', '手动覆盖心率、血压')
+    row = kp.locator(f'.vrow[data-vid="{human}"]')
+    row.locator('[name=bp]').fill('abc'); row.locator('[data-vov]').click()
+    kp.wait_for_selector(f'.vrow[data-vid="{human}"] .msg.bad')
+    check('120/80' in kp.inner_text(f'.vrow[data-vid="{human}"] .msg'), '血压格式错误时提示')
+    kp.locator(f'.vrow[data-vid="{human}"] [data-vclr]').click()
+    ph.wait_for_function("document.querySelector('#v-hr').textContent !== '130'", timeout=5000)
+    check(110 <= int(ph.inner_text('#v-hr')) <= 130, '清除覆盖后按伤情自动')
+
+    print('扫描条目')
+    ph.click('#scanbtn'); ph.wait_for_selector('.ambient', timeout=5000)
+    check(ph.locator('.ambient .p').inner_text().startswith('搭档 新人刑警：重伤'), '没有开放条目时显示搭档状态和环境描述')
+    kp.fill('#snt', '黑色装甲仿生人（4 台）'); kp.fill('#snl', '制造编号：无法读取\n装甲：2'); kp.click('#snadd'); kp.wait_for_selector('#snm.good')
+    kp.wait_for_selector('.scanitem')
+    sid = kp.get_attribute('.scanitem', 'data-sc')
+    h = phapi('/api/hud')
+    check(h['scans'] == [] and '黑色装甲' not in json.dumps(h, ensure_ascii=False), '隐藏的扫描条目不发送到玩家浏览器')
+    check(kp.locator(f'select[data-unlock="{human}"][data-entry="scan:{sid}"]').count() == 0, '人类玩家没有扫描开关')
+    kp.select_option(f'select[data-unlock="2"][data-entry="scan:{sid}"]', 'open')
+    ph.wait_for_selector('#newdata:not([hidden])', timeout=5000)
+    check(True, '开放后 HUD 提示检测到新数据')
+    check(ph.locator('.sitem').count() == 0, '没按扫描前不直接显示新条目')
+    ph.click('#scanbtn'); ph.wait_for_selector('.sitem', timeout=5000)
+    check(ph.locator('.sitem .new').count() == 1, '新条目标“新”')
+    ph.click('.sitem .h')
+    check('装甲：2' in ph.inner_text('.sitem .d') and ph.locator('.sitem .new').count() == 0, '点开看到数据，“新”消失')
+    it = kp.locator(f'.scanitem[data-sc="{sid}"]')
+    it.locator('[name=sl]').fill('制造编号：无法读取\n装甲：2\n弱点：关节'); it.locator('[data-scsave]').click()
+    ph.wait_for_function("document.querySelector('.sitem .d').textContent.includes('弱点')", timeout=5000)
+    check(True, '修改条目内容后玩家那边即时更新')
+    ph.wait_for_timeout(3000); ph.locator('#b-vitals').screenshot(path=f'{SHOTS}/m_vitals.png')
+    ph.screenshot(path=f'{SHOTS}/m_hud.png', full_page=True)
+    sw = ph.evaluate('document.documentElement.scrollWidth')
+    check(sw <= 380, f'手机宽度下没有横向溢出（{sw}px）')
+
+    print('场景预设保存扫描状态')
+    kp.fill('#pname', '扫描预设'); kp.click('#psave'); kp.wait_for_selector('#presets >> text=扫描预设')
+    kp.select_option(f'select[data-unlock="2"][data-entry="scan:{sid}"]', 'hidden')
+    ph.wait_for_function("!document.querySelector('.sitem')", timeout=5000)
+    check(True, '隐藏后条目从玩家 HUD 消失')
+    kp.once('dialog', lambda d: (check('扫描·黑色装甲' in d.message, '应用预设的确认框列出扫描条目'), d.accept()))
+    kp.locator('#presets tr', has_text='扫描预设').locator('[data-papply]').click()
+    ph.wait_for_selector('#newdata:not([hidden])', timeout=5000)
+    check(len(phapi('/api/hud')['scans']) == 1, '应用预设后扫描条目恢复开放')
+
+    print('环境台词、型号、界面故障')
+    kp.fill('#amb', '测试台词甲'); kp.click('#ambsave'); kp.wait_for_selector('#ambm.good')
+    kp.select_option(f'select[data-unlock="2"][data-entry="scan:{sid}"]', 'hidden')
+    ph.wait_for_selector('#newdata[hidden]', state='attached', timeout=5000)
+    ph.click('#scanbtn'); ph.wait_for_selector('.ambient', timeout=5000)
+    check('测试台词甲' in ph.inner_text('.ambient'), '扫描显示 KP 编辑的环境台词')
+    row = kp.locator('[data-mid2="2"]'); row.locator('[name=model]').fill('BR800-T'); row.locator('[data-msave]').click()
+    ph.wait_for_function("document.querySelector('#model').textContent === 'BR800-T'", timeout=5000)
+    check(True, '改型号后 HUD 即时更新')
+    kp.select_option('#glu', '2'); kp.select_option('#gle', 'snow'); kp.fill('#glt', '警告：检测到外部入侵'); kp.click('#glgo')
+    kp.wait_for_selector('#glm.good')
+    ph.wait_for_selector('#snow:not([hidden])', timeout=3000)
+    check('外部入侵' in ph.inner_text('#gtext'), '雪花错字带附加文字')
+    ph.screenshot(path=f'{SHOTS}/m_glitch.png')
+    ph.wait_for_selector('#snow', state='hidden', timeout=4000)
+    check(ph.inner_text('#model') == 'BR800-T', '雪花结束后文字恢复')
+    kp.select_option('#gle', 'black'); kp.fill('#glt', ''); kp.click('#glgo')
+    ph.wait_for_selector('#black:not([hidden])', timeout=3000)
+    ph.wait_for_selector('#black', state='hidden', timeout=5000)
+    check(True, '黑屏 3 秒后恢复')
+
+    print('HO4 旧型机外观（预览）')
+    inv = kapi('/api/kp/invite', {'ho': 'HO4'})['code']
+    r = urllib.request.Request(B + '/api/register', data=json.dumps({'code': inv, 'username': 'old-unit', 'password': 'abcdef',
+        'sheet': {'name': '旧型机', 'dex': 50, 'hp': 24, 'comp': 50, 'hack': 70, 'spot': 50, 'mech': 30, 'lock': 30, 'idea': 40}}).encode(),
+        headers={'X-Void': '1', 'Content-Type': 'application/json'})
+    old = json.loads(urllib.request.urlopen(r).read())['user']['id']
+    kapi('/api/kp/user', {'id': old, 'status': 'approved', 'hudColor': 'green', 'model': 'RK-02'})
+    pv = kp.context.new_page(); pv.on('pageerror', lambda e: errs.append('pv4: ' + str(e)))
+    pv.set_viewport_size({'width': 1280, 'height': 860})
+    pv.goto(B + f'/terminal?as={old}'); pv.wait_for_selector('body.hud.c-green.old')
+    check(pv.locator('#boot:not([hidden])').count() == 0 and pv.locator('.preview-bar').count() == 1, '预览旧型机：绿色、不播开机动画')
+    check(pv.inner_text('#tier') == 'NO LINK', 'HO4 没有 HO3 搭档时显示未连接')
+    pv.wait_for_timeout(600); pv.screenshot(path=f'{SHOTS}/hud_ho4_green.png')
+    kapi('/api/kp/user', {'id': old, 'hudColor': 'amber'})
+    pv.wait_for_selector('body.hud.c-amber', timeout=5000)
+    check(True, '改颜色后预览即时更新')
+    pv.goto(B + '/terminal?as=2'); pv.wait_for_selector('body.hud.c-cyan')
+    pv.wait_for_timeout(600); pv.screenshot(path=f'{SHOTS}/hud_ho2.png', full_page=True)
+    pv.close()
+
+    print('退回审核时切回普通终端')
+    kapi('/api/kp/user', {'id': 2, 'status': 'pending'})
+    ph.wait_for_selector('text=等待 KP 审核', timeout=8000)
+    check(ph.locator('body.hud').count() == 0, '退回后显示普通终端')
+    kapi('/api/kp/user', {'id': 2, 'status': 'approved'})
+    ph.wait_for_selector('body.hud', timeout=8000)
+    check(ph.locator('#boot:not([hidden])').count() == 0, '再次审核通过回到 HUD，不重播开机动画')
+    ph.wait_for_selector('.prog >> text=监控录像分析')
 
 if __name__ == '__main__':
     main()

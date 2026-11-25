@@ -39,11 +39,24 @@ const SHEET_FIELDS = [
   ['idea', '灵感', 0, 200],
 ];
 const STATES = ['hidden', 'locked', 'open'];
+const PARTNER = { HO1: 'HO2', HO2: 'HO1', HO3: 'HO4', HO4: 'HO3' };
+const DEFAULT_AMBIENT = [
+  '未检测到威胁。',
+  '周边环境稳定。',
+  '附近无可疑信号。',
+  '环境噪声处于正常范围。',
+  '未发现未登记的机体。',
+];
+const GLITCHES = ['snow', 'black'];
 
 // ---------- 启动 ----------
 const db = DB.load();
 db.presets = db.presets || [];   // {id, name, states: {uid: {entryId: state}}, createdAt, updatedAt}
 db.messages = db.messages || []; // {id, to: [uid], title, body, t, readBy: {uid: t}}
+// 第 3a 步：扫描条目、环境台词池。用户上另有 model（型号名）、hudColor（旧型机颜色）、vitals（体征覆盖）
+db.scans = db.scans || [];       // {id, title, lines, createdAt, updatedAt}；状态存在 db.unlocks[uid]['scan:'+id]
+if (!Array.isArray(db.hudAmbient)) db.hudAmbient = DEFAULT_AMBIENT.slice();
+for (const u of db.users) if (u.role === 'player') fillHudDefaults(u);
 E.sync(db, GAMES_DIR);
 DB.save();
 // 每分钟重新扫描 games/，git pull 加进来的新游戏不用重启就会出现在控制台
@@ -73,6 +86,33 @@ function notifyAllPlayers(what) { for (const u of db.users) if (u.role === 'play
 
 // ---------- 小工具 ----------
 function now() { return Date.now(); }
+
+function isAndroid(u) { return !!u && u.role === 'player' && (u.ho === 'HO2' || u.ho === 'HO4'); }
+function fillHudDefaults(u) {
+  if (u.model === undefined) u.model = u.ho === 'HO2' ? 'BR800' : '';
+  if (!['amber', 'green'].includes(u.hudColor)) u.hudColor = 'amber';
+  if (!u.vitals || typeof u.vitals !== 'object') u.vitals = { hr: null, bp: null, rr: null };
+}
+// 搭档：HO1—HO2、HO3—HO4。测试账号只和测试账号配对；有多个时取已审核、最早注册的
+function partnerOf(u) {
+  const ho = PARTNER[u.ho];
+  if (!ho) return null;
+  return db.users.find(x => x.role === 'player' && x.ho === ho && !!x.test === !!u.test && x.status === 'approved') || null;
+}
+// 伤情：0 无伤、1 轻伤、2 重伤、3 濒死
+function injuryTier(u) {
+  const max = Math.max(1, u.sheet.hp), hp = Math.max(0, Math.min(u.hpNow, max));
+  if (hp >= max) return 0;
+  if (hp * 2 >= max) return 1;
+  if (hp > 0) return 2;
+  return 3;
+}
+// 仿生人界面相关的变化：通知所有仿生人玩家重新读取（玩家只有几个人，不必精确到人）
+function notifyHud(what = 'hud') {
+  for (const u of db.users) if (isAndroid(u)) EV.send(u.id, 'refresh', { what });
+  notifyKp();
+}
+function scanKey(id) { return 'scan:' + id; }
 
 function clientIp(req) {
   return String(req.headers['cf-connecting-ip'] || req.headers['x-real-ip'] ||
@@ -143,14 +183,14 @@ function currentUser(req, which) {
   if (!s) return null;
   if (s.exp < now()) { delete db.sessions[sid]; return null; }
   const u = db.users.find(x => x.id === s.uid);
-  return u && u.role === which ? { user: u, sid } : null;
+  return u && u.role === which ? { user: u, sid, t: s.t || 0 } : null;
 }
 
 function startSession(req, res, user) {
   for (const [k, s] of Object.entries(db.sessions)) if (s.exp < now()) delete db.sessions[k];
   const sid = A.token();
   const ttl = user.role === 'kp' ? KP_SESSION : PLAYER_SESSION;
-  db.sessions[sid] = { uid: user.id, exp: now() + ttl };
+  db.sessions[sid] = { uid: user.id, exp: now() + ttl, t: now() };
   DB.save();
   setCookie(req, res, COOKIE[user.role], sid, ttl);
 }
@@ -204,7 +244,7 @@ function publicUser(u, forKp = false) {
     id: u.id, username: u.username, role: u.role, ho: u.ho, kind: u.kind,
     status: u.status, test: !!u.test, sheet: u.sheet, hpNow: u.hpNow,
   };
-  if (forKp) out.createdAt = u.createdAt;
+  if (forKp) Object.assign(out, { createdAt: u.createdAt, model: u.model, hudColor: u.hudColor, vitals: u.vitals });
   return out;
 }
 
@@ -238,7 +278,7 @@ function viewer(req, url) {
   }
   const cu = currentUser(req);
   if (!cu) return null;
-  return { user: cu.user, preview: false };
+  return { user: cu.user, preview: false, sessionT: cu.t };
 }
 
 function messagesFor(uid) {
@@ -299,7 +339,7 @@ route('GET', '/api/health', (req, res) => ok(res, { ok: true }));
 
 route('GET', '/api/me', (req, res, body, url) => {
   const v = viewer(req, url);
-  ok(res, { ok: true, user: v ? publicUser(v.user) : null, preview: !!(v && v.preview), kpReady: !!kpUser() });
+  ok(res, { ok: true, user: v ? publicUser(v.user) : null, preview: !!(v && v.preview), sessionT: v && v.sessionT || 0, kpReady: !!kpUser() });
 });
 
 route('GET', '/api/meta', (req, res) => ok(res, {
@@ -360,13 +400,14 @@ route('POST', '/api/register', async (req, res, body) => {
     id: db.nextId++, username, role: 'player', pw: A.hash(pw), ho: inv.ho, kind: HO_INFO[inv.ho].kind,
     sheet, hpNow: sheet.hp, status: 'pending', test: false, createdAt: now(),
   };
+  fillHudDefaults(u);
   db.users.push(u);
   inv.usedBy = u.id; inv.usedAt = now();
   A.succeed(keys);
   DB.save();
   logLogin(req, username, 'register', true);
   startSession(req, res, u);
-  notifyKp();
+  notifyHud('vitals');
   ok(res, { ok: true, user: publicUser(u) });
 });
 
@@ -377,7 +418,7 @@ route('POST', '/api/sheet', async (req, res, body) => {
   try { cu.user.sheet = cleanSheet(body.sheet || {}); } catch (e) { return err(res, 400, e.message); }
   cu.user.hpNow = cu.user.sheet.hp;
   DB.save();
-  notifyKp();
+  notifyHud('vitals');
   ok(res, { ok: true, user: publicUser(cu.user) });
 });
 
@@ -408,6 +449,18 @@ route('POST', '/api/messages/read', async (req, res, body) => {
   if (!m) return err(res, 404, '没有这条消息');
   if (!m.readBy[cu.user.id]) { m.readBy[cu.user.id] = now(); DB.save(); notifyKp(); }
   ok(res);
+});
+
+// 仿生人 HUD 的数据：本机设置、搭档体征（只给伤情档和覆盖值，不给 HP 数字）、已开放的扫描条目、环境台词
+route('GET', '/api/hud', (req, res, body, url) => {
+  const v = viewer(req, url);
+  if (!v || !isAndroid(v.user) || v.user.status !== 'approved') return err(res, 403, '不可用');
+  const u = v.user;
+  const p = partnerOf(u);
+  const partner = p ? { connected: true, name: p.sheet.name, ho: p.ho, tier: injuryTier(p), vitals: p.vitals } : { connected: false, ho: PARTNER[u.ho] };
+  const scans = db.scans.filter(s => entryState(u.id, scanKey(s.id)) === 'open')
+    .map(s => ({ id: s.id, title: s.title, lines: s.lines, updatedAt: s.updatedAt }));
+  ok(res, { ok: true, model: u.model, color: u.ho === 'HO2' ? 'cyan' : u.hudColor, partner, scans, ambient: db.hudAmbient });
 });
 
 // ----- KP -----
@@ -465,6 +518,8 @@ route('GET', '/api/kp/state', (req, res) => {
     entries: entryList().map(e => ({ id: e.id, name: e.name, desc: e.desc, url: `/games/${e.dir}/` })),
     users: db.users.filter(u => u.role === 'player').map(u => Object.assign(publicUser(u, true), { online: online.includes(u.id) })),
     unlocks: db.unlocks,
+    scans: db.scans,
+    hudAmbient: db.hudAmbient,
     presets: db.presets.map(p => ({ id: p.id, name: p.name, updatedAt: p.updatedAt })),
     messages: db.messages.slice().reverse(),
     invites: db.invites.slice().reverse(),
@@ -537,6 +592,13 @@ route('POST', '/api/kp/user', async (req, res, body) => {
     if (!['pending', 'approved'].includes(body.status)) return err(res, 400, '状态不正确');
     u.status = body.status;
   }
+  if (body.model !== undefined) {
+    try { u.model = cleanText(body.model, 20, '型号', false); } catch (e) { return err(res, 400, e.message); }
+  }
+  if (body.hudColor !== undefined) {
+    if (!['amber', 'green'].includes(body.hudColor)) return err(res, 400, '颜色不正确');
+    u.hudColor = body.hudColor;
+  }
   if (body.password) {
     if (String(body.password).length < 6) return err(res, 400, '密码至少 6 位');
     u.pw = A.hash(body.password);
@@ -544,6 +606,7 @@ route('POST', '/api/kp/user', async (req, res, body) => {
   }
   DB.save();
   notifyUser(u.id, 'user');
+  notifyHud('vitals');
   ok(res, { ok: true, user: publicUser(u, true) });
 });
 
@@ -559,16 +622,19 @@ route('POST', '/api/kp/user/delete', async (req, res, body) => {
   db.messages = db.messages.filter(m => m.to.length);
   endSessionsOf(u.id);
   DB.save();
+  notifyHud('vitals');
   ok(res);
 });
 
 route('POST', '/api/kp/unlock', async (req, res, body) => {
   if (!requireKp(req, res)) return;
   const u = findPlayer(body.uid);
-  const e = entryList().find(x => x.id === body.entry);
+  const key = String(body.entry || '');
+  const isScan = key.startsWith('scan:');
+  const e = isScan ? db.scans.find(x => scanKey(x.id) === key) : entryList().find(x => x.id === key);
   if (!u || !e) return err(res, 404, '玩家或入口不存在');
-  if (!STATES.includes(body.state)) return err(res, 400, '状态不正确');
-  (db.unlocks[u.id] = db.unlocks[u.id] || {})[e.id] = body.state;
+  if (!(isScan ? ['hidden', 'open'] : STATES).includes(body.state)) return err(res, 400, '状态不正确');
+  (db.unlocks[u.id] = db.unlocks[u.id] || {})[key] = body.state;
   DB.save();
   notifyUser(u.id, 'entries');
   ok(res);
@@ -593,6 +659,7 @@ function snapshotStates() {
   for (const u of db.users) if (u.role === 'player') {
     states[u.id] = {};
     for (const e of entryList()) states[u.id][e.id] = entryState(u.id, e.id);
+    for (const s of db.scans) states[u.id][scanKey(s.id)] = entryState(u.id, scanKey(s.id));
   }
   return states;
 }
@@ -683,6 +750,95 @@ route('POST', '/api/kp/message/delete', async (req, res, body) => {
   ok(res);
 });
 
+// 体征面板：改当前 HP（加减或直接设定），0 到 HP 上限
+route('POST', '/api/kp/hp', async (req, res, body) => {
+  if (!requireKp(req, res)) return;
+  const u = findPlayer(body.id);
+  if (!u) return err(res, 404, '没有这个玩家');
+  let hp = body.value !== undefined && body.value !== '' ? Number(body.value) : u.hpNow + Number(body.delta);
+  if (!Number.isFinite(hp)) return err(res, 400, 'HP 需要是数字');
+  hp = Math.max(0, Math.min(u.sheet.hp, Math.round(hp)));
+  u.hpNow = hp;
+  DB.save();
+  EV.send(u.id, 'refresh', { what: 'user' });
+  notifyHud('vitals');
+  ok(res, { ok: true, hpNow: hp });
+});
+
+// 体征覆盖：心率、血压、呼吸，空值表示不覆盖
+route('POST', '/api/kp/vitals', async (req, res, body) => {
+  if (!requireKp(req, res)) return;
+  const u = findPlayer(body.id);
+  if (!u) return err(res, 404, '没有这个玩家');
+  const out = { hr: null, bp: null, rr: null };
+  const hr = String(body.hr ?? '').trim(), bp = String(body.bp ?? '').trim(), rr = String(body.rr ?? '').trim();
+  if (hr) { const n = Number(hr); if (!Number.isInteger(n) || n < 0 || n > 250) return err(res, 400, '心率需要是 0–250 的整数'); out.hr = n; }
+  if (bp) { if (!/^\d{1,3}\/\d{1,3}$/.test(bp)) return err(res, 400, '血压格式如 120/80'); out.bp = bp; }
+  if (rr) { const n = Number(rr); if (!Number.isInteger(n) || n < 0 || n > 80) return err(res, 400, '呼吸需要是 0–80 的整数'); out.rr = n; }
+  u.vitals = out;
+  DB.save();
+  notifyHud('vitals');
+  ok(res, { ok: true, vitals: out });
+});
+
+// 扫描条目：新建或修改
+route('POST', '/api/kp/scan/save', async (req, res, body) => {
+  if (!requireKp(req, res)) return;
+  let title, lines;
+  try {
+    title = cleanText(body.title, 40, '目标名');
+    lines = cleanText(body.lines, 2000, '数据', false);
+  } catch (x) { return err(res, 400, x.message); }
+  let s;
+  if (body.id) {
+    s = db.scans.find(x => x.id === body.id);
+    if (!s) return err(res, 404, '没有这个条目');
+    Object.assign(s, { title, lines, updatedAt: now() });
+  } else {
+    s = { id: newId('s'), title, lines, createdAt: now(), updatedAt: now() };
+    db.scans.push(s);
+  }
+  DB.save();
+  notifyHud('scans');
+  ok(res, { ok: true, id: s.id });
+});
+
+route('POST', '/api/kp/scan/delete', async (req, res, body) => {
+  if (!requireKp(req, res)) return;
+  const s = db.scans.find(x => x.id === body.id);
+  if (!s) return err(res, 404, '没有这个条目');
+  db.scans = db.scans.filter(x => x !== s);
+  for (const st of Object.values(db.unlocks)) delete st[scanKey(s.id)];
+  for (const p of db.presets) for (const st of Object.values(p.states)) delete st[scanKey(s.id)];
+  DB.save();
+  notifyHud('scans');
+  ok(res);
+});
+
+// 环境台词池：一行一句
+route('POST', '/api/kp/hud', async (req, res, body) => {
+  if (!requireKp(req, res)) return;
+  const lines = String(body.ambient ?? '').split('\n').map(x => x.trim()).filter(Boolean);
+  if (lines.length > 100) return err(res, 400, '最多 100 句');
+  if (lines.some(x => x.length > 80)) return err(res, 400, '每句最多 80 个字');
+  db.hudAmbient = lines;
+  DB.save();
+  notifyHud('ambient');
+  ok(res);
+});
+
+// 界面故障：只推送，不保存
+route('POST', '/api/kp/glitch', async (req, res, body) => {
+  if (!requireKp(req, res)) return;
+  const u = findPlayer(body.uid);
+  if (!u) return err(res, 404, '没有这个玩家');
+  if (!GLITCHES.includes(body.effect)) return err(res, 400, '效果不正确');
+  let text;
+  try { text = cleanText(body.text, 60, '文字', false); } catch (x) { return err(res, 400, x.message); }
+  EV.send(u.id, 'glitch', { effect: body.effect, text });
+  ok(res, { ok: true, online: EV.online().includes(u.id) });
+});
+
 // 测试账号：test-ho1（人类）、test-ho2（仿生人）。每次重置生成新密码，并清空进度和消息。
 route('POST', '/api/kp/test/reset', async (req, res) => {
   if (!requireKp(req, res)) return;
@@ -699,6 +855,8 @@ route('POST', '/api/kp/test/reset', async (req, res) => {
       sheet: { name, dex: 60, hp: 12, comp: ho === 'HO2' ? 80 : 50, hack: 0, spot: 60, mech: 20, lock: 20, idea: 60 },
     });
     u.hpNow = u.sheet.hp;
+    u.vitals = { hr: null, bp: null, rr: null };
+    fillHudDefaults(u);
     db.unlocks[u.id] = Object.fromEntries(entryList().map(e => [e.id, 'open']));
     for (const m of db.messages) m.to = m.to.filter(x => x !== u.id);
     endSessionsOf(u.id);
@@ -706,7 +864,7 @@ route('POST', '/api/kp/test/reset', async (req, res) => {
   }
   db.messages = db.messages.filter(m => m.to.length);
   DB.save();
-  notifyKp();
+  notifyHud('vitals');
   ok(res, { ok: true, accounts: made });
 });
 
@@ -734,7 +892,16 @@ const server = http.createServer(async (req, res) => {
     // 页面
     if (PAGES[p]) {
       if (p === '/kp/setup' && kpUser()) return notFound(res);
-      return serveFile(req, res, path.join(PUBLIC_DIR, PAGES[p]), 'no-cache');
+      let page = PAGES[p];
+      // 已审核的仿生人玩家看 HUD，其他人（人类、待审核）看普通终端。第 3b 步人类换成办公电脑
+      if (p === '/terminal') {
+        const v = viewer(req, url);
+        if (v && isAndroid(v.user) && v.user.status === 'approved') page = 'hud.html';
+        // 同一个网址会给出两种页面，不能让浏览器用缓存
+        delete req.headers['if-modified-since'];
+        return serveFile(req, res, path.join(PUBLIC_DIR, page), 'no-store');
+      }
+      return serveFile(req, res, path.join(PUBLIC_DIR, page), 'no-cache');
     }
 
     // 公共静态资源（样式、脚本、图标）

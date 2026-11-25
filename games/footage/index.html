@@ -212,7 +212,7 @@ button:disabled{opacity:.35;cursor:default}
 
 <div id="spot" class="hidden"></div>
 <button type="button" class="mini hidden" id="btnSkipTut">跳过教学 ›</button>
-<div id="ichi"><div id="bubble"><b>一羽</b><span id="bubbleT"></span></div><canvas id="ichiC" width="256" height="256"></canvas></div>
+<div id="ichi" class="hidden"><div id="bubble"><b>一羽</b><span id="bubbleT"></span></div><canvas id="ichiC" width="256" height="256"></canvas></div>
 <div id="dlg" class="hidden"><canvas id="dlgC" width="256" height="256"></canvas>
   <div style="flex:1"><div class="who">一羽</div><div id="dlgT"></div><div id="dlgNext">▼ 点击继续</div></div></div>
 
@@ -330,6 +330,8 @@ const CONFIG = {
   calBox:   {x:416, y:104, w:112, h:120},   // 教学：日历页（数字写在这里）
   dropsBox: {x:262, y:316, w:170, h:104},   // 极限成功：框住蓝色液体的范围
   ichiSay: 8000,        // 一羽气泡显示毫秒（正式关卡）
+  ichiMin: 3500,        // 一羽每句至少显示毫秒；后一句排队等前一句显示够
+  ichiPerChar: 160,     // 长句按字数延长显示（毫秒/字）
   typeMs: 30,           // 教学对话逐字速度（毫秒/字）
 };
 
@@ -642,13 +644,26 @@ function ichiDraw(face){
   if (face === ichiFace) return; ichiFace = face;
   ichiG.clearRect(0,0,256,256); ichiG.drawImage(A('ichiha_'+face), 0, 0, 256, 256);
 }
-function say(text, face, dur){
+// 一羽说话：事件台词排队，每句至少显示 ichiMin（长句按字数延长）；force = 立刻说（点一羽、标错反馈）
+let ichiQ = [], ichiQT = 0, ichiMinUntil = 0;
+function say(text, face, dur, force){
   if (!text) return;
+  const now = performance.now();
+  if (force){ ichiQ = []; clearTimeout(ichiQT); }
+  else if ($('bubble').classList.contains('on') && now < ichiMinUntil){
+    ichiQ.push([text, face, dur]); if (ichiQ.length > 2) ichiQ.shift();
+    clearTimeout(ichiQT); ichiQT = setTimeout(ichiFlush, ichiMinUntil - now); return;
+  }
   ichiLast = text; $('bubbleT').textContent = text; $('bubble').classList.add('on');
   ichiDraw(face || 'normal');
+  const minMs = Math.max(CONFIG.ichiMin, text.length * CONFIG.ichiPerChar);
+  ichiMinUntil = now + minMs;
   clearTimeout(ichiTimer);
-  ichiTimer = setTimeout(() => { $('bubble').classList.remove('on'); ichiDraw('normal'); }, dur || CONFIG.ichiSay);
+  ichiTimer = setTimeout(() => { $('bubble').classList.remove('on'); ichiDraw('normal'); }, Math.max(dur || CONFIG.ichiSay, minMs + 1500));
+  if (ichiQ.length){ clearTimeout(ichiQT); ichiQT = setTimeout(ichiFlush, minMs); }
 }
+function ichiFlush(){ const n = ichiQ.shift(); if (n){ ichiMinUntil = 0; say(n[0], n[1], n[2]); } }
+function ichiReset(){ ichiQ = []; clearTimeout(ichiQT); clearTimeout(ichiTimer); ichiMinUntil = 0; $('bubble').classList.remove('on'); }
 function sayFrom(key, face){ const L = ICHI[key]; if (!L || !L.length) return;
   ichiIdx[key] = ((ichiIdx[key] ?? -1) + 1) % L.length; say(L[ichiIdx[key]], face); }
 function ichiPool(){
@@ -667,7 +682,7 @@ function ichiTap(){
   const L = ichiPool(); if (!L.length) return;
   let t = L[Math.floor(rnd()*L.length)];
   if (L.length > 1) while (t === ichiLast) t = L[Math.floor(rnd()*L.length)];
-  SFX.tick(); say(t, 'normal');
+  SFX.tick(); say(t, 'normal', 0, true);
 }
 ichiC.addEventListener('click', ichiTap);
 $('bubble').addEventListener('click', ichiTap);
@@ -732,6 +747,7 @@ function bootRound(round, done){
   later(() => { renderGrid(R.segs, true); later(done, R.segs.length*(Q.low ? 40 : 110) + (Q.low ? 200 : 520)); }, lines.length*gap + 150);
 }
 function startRound(){
+  ichiReset(); $('ichi').classList.remove('hidden');
   bootRound(buildRound(curTier(), enabledTypes()), () => {
     state = 'find'; tStart = performance.now(); setStep('① 找出伪造片段');
     setMsg(`共 ${R.segs.length} 段，检测到拼接痕迹 <b>${R.fakes}</b> 处。点开片段查看。`);
@@ -806,7 +822,7 @@ $('btnMark').onclick = () => {
     $('vInfo').innerHTML = `<span style="color:var(--danger)">${TEXT.wrong}</span>`;
     setMsg(`#${String(s.no).padStart(2,'0')}：${TEXT.wrong}（错误 ${errors}/${CONFIG.maxErrors}）`, 'ng');
     if (errors >= CONFIG.maxErrors){ later(() => { closeViewer(); finish(false); }, 800); }
-    else sayFrom(errors === CONFIG.maxErrors - 1 ? 'lastChance' : 'wrong', 'puzzled');
+    else { const L = ICHI[errors === CONFIG.maxErrors - 1 ? 'lastChance' : 'wrong']; say(pick(L), 'puzzled', 0, true); }
   }
 };
 $('btnHint').onclick = () => {
@@ -1145,7 +1161,7 @@ function startTutorial(){
 function tutEnd(){
   tut.on = false; tut.step = 0; spot.classList.add('hidden'); spotKey = 'off';
   clearTimeout(dlg.timer); clearTimeout(dlg.restore); dlg.queue = []; dlg.waiting = dlg.typing = false; dlg.done = null;
-  $('dlg').classList.add('hidden'); $('ichi').classList.remove('hidden');
+  $('dlg').classList.add('hidden');
   $('btnSkipTut').classList.add('hidden'); closeViewer(); decodes = [];
   if (CONFIG._ds != null){ CONFIG.dayStart = CONFIG._ds; CONFIG.dayEnd = CONFIG._de; CONFIG._ds = null; }
   $('notesList').innerHTML = TEXT.notes.map(n => `<div>· ${esc(n)}</div>`).join('');
@@ -1180,7 +1196,7 @@ function finish(win){
   setTimeout(() => say(win ? (perfect ? '完美～这个蓝色的东西，一羽好像在哪里见过呢。' : '找回来了哦～') : '……没关系，录像被改过这件事，至少确定了呢。', win ? 'happy' : 'puzzled'), 900);
 }
 $('btnRetry').onclick = () => { SFX.click(); attempt++; $('result').classList.add('hidden'); startRound(); };
-$('btnAgain').onclick = () => { SFX.click(); $('result').classList.add('hidden'); $('intro').classList.remove('hidden'); state = 'intro'; refreshIntro(); };
+$('btnAgain').onclick = () => { SFX.click(); ichiReset(); $('ichi').classList.add('hidden'); $('result').classList.add('hidden'); $('intro').classList.remove('hidden'); state = 'intro'; refreshIntro(); };
 $('btnCopy').onclick = () => {
   const txt = $('rLine').textContent, b = $('btnCopy'), old = b.textContent;
   const done = () => { b.textContent = '已复制'; setTimeout(() => b.textContent = old, 1500); };

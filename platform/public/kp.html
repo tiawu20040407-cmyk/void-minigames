@@ -385,8 +385,10 @@ document.addEventListener('click', async e => {
   if (b.id === 'test') {
     const r = await api('/api/kp/test/reset', {});
     if (!r.ok) return alert(r.error);
-    $('#testout').innerHTML = '<table class="accounts" style="margin-top:12px"><tr><th>账号</th><th>密码</th><th>身份</th></tr>' +
-      r.accounts.map(a => `<tr><td class="mono">${esc(a.username)}</td><td class="mono">${esc(a.password)}</td><td>${esc(a.ho)}</td></tr>`).join('') + '</table>';
+    $('#testout').innerHTML = '<table class="accounts" style="margin-top:12px"><tr><th>账号</th><th>密码</th><th>身份</th><th></th></tr>' +
+      r.accounts.map(a => `<tr><td class="mono">${esc(a.username)}</td><td class="mono" style="font-size:17px;letter-spacing:.08em">${esc(a.password)}</td><td>${esc(a.ho)}</td>
+        <td style="white-space:nowrap"><button class="small" data-copy="${esc(a.password)}">复制密码</button></td></tr>`).join('') + '</table>' +
+      '<div class="dim" style="font-size:13px;margin-top:8px">密码只含小写字母、数字和一个短横线。再点一次“重置”会换成新密码。</div>';
     return load();
   }
   if (b.id === 'sysr') return loadSys();

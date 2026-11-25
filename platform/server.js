@@ -314,7 +314,9 @@ route('POST', '/api/login', async (req, res, body) => {
   const wait = A.limited(keys);
   if (wait) return err(res, 429, `尝试次数过多，请 ${wait} 分钟后再试`);
   const u = findUser(name);
-  if (!u || u.role !== 'player' || !A.verify(body.password, u.pw)) {
+  // 复制粘贴时常带进前后空格，原样不对时再试一次去掉空格的
+  const pwOk = u && (A.verify(body.password, u.pw) || A.verify(String(body.password || '').trim(), u.pw));
+  if (!u || u.role !== 'player' || !pwOk) {
     A.fail(keys); logLogin(req, name, 'player', false);
     return err(res, 401, '账号或密码不正确');
   }

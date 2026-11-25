@@ -28,8 +28,10 @@ function inviteCode() {
   return `VOID-${pick(4)}-${pick(4)}`;
 }
 
+// 测试账号密码：只用不容易看错的小写字母和数字（没有 l、o、i、0、1）
+const PW_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789';
 function readablePassword() {
-  const pick = n => Array.from(crypto.randomBytes(n), b => CODE_CHARS[b % CODE_CHARS.length]).join('').toLowerCase();
+  const pick = n => Array.from(crypto.randomBytes(n), b => PW_CHARS[b % PW_CHARS.length]).join('');
   return `${pick(4)}-${pick(4)}`;
 }
 

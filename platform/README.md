@@ -51,9 +51,10 @@ cd /opt/1panel/apps/openresty/openresty/www/sites/void.xn--rht5f.space/index && 
 | 启动命令 | 选脚本 `start`（如果要求填写自定义命令：`npm run start`） |
 | 应用端口 | `3100` |
 | 外部映射端口 | `3100` |
+| 端口外部访问 | **关闭**（只让本机的 OpenResty 访问） |
 | Node 版本 | 18 以上任选（推荐 20 或 22） |
 
-创建后状态应为“运行中”。**不要**在防火墙里开放 3100 端口，外部访问全部走 443。
+第一次创建要下载 Node.js 镜像，可能需要几分钟。创建后状态应为“运行中”。**不要**在防火墙里开放 3100 端口，外部访问全部走 443。
 
 ### 3. 查看 KP 初始化码
 
@@ -71,7 +72,7 @@ cd /opt/1panel/apps/openresty/openresty/www/sites/void.xn--rht5f.space/index && 
 |---|---|
 | 名称 | `platform` |
 | 前端请求路径 | `/` |
-| 后端代理地址 | `http://127.0.0.1:3100` |
+| 后端代理地址 | 协议选 `http`，地址框只填 `127.0.0.1:3100`（不要再写 `http://`，否则会报 invalid port in upstream） |
 
 保存。之后整个网站都由平台处理，原来的静态目录不再直接对外。
 

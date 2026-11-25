@@ -88,3 +88,26 @@ td.mono, .mono { font-family: var(--mono); }
   .panel { padding: 14px; }
   th, td { padding: 6px 5px; }
 }
+
+/* 第 2 步：消息弹窗、在线点、预览横幅 */
+.modal-bg { position: fixed; inset: 0; z-index: 50; background: rgba(5,7,9,.78); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.modal { width: 100%; max-width: 520px; max-height: 85vh; overflow: auto; background: var(--panel); border: 1px solid var(--accent); padding: 20px; position: relative;
+  box-shadow: 0 0 0 1px rgba(127,209,199,.15), 0 0 40px rgba(127,209,199,.12); animation: pop .18s ease-out; }
+.modal .kicker { font: 12px var(--mono); color: var(--accent); letter-spacing: .15em; margin-bottom: 8px; }
+.modal h2 { font-size: 18px; margin-bottom: 10px; }
+.modal .body { white-space: pre-wrap; word-break: break-word; line-height: 1.75; }
+@keyframes pop { from { transform: scale(.97); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #3a434c; vertical-align: middle; }
+.dot.on { background: var(--good); box-shadow: 0 0 6px var(--good); }
+
+.preview-bar { position: sticky; top: 0; z-index: 40; background: var(--warn); color: #0b0d10; text-align: center; font-size: 13px; padding: 6px; font-weight: 600; }
+
+.msgitem { border: 1px solid var(--line); padding: 10px 12px; margin-bottom: 8px; background: #0d1014; cursor: pointer; }
+.msgitem .t { font-size: 12px; color: var(--dim); font-family: var(--mono); }
+.msgitem.unread { border-color: var(--accent); }
+.msgitem .body { white-space: pre-wrap; word-break: break-word; margin-top: 6px; display: none; }
+.msgitem.open .body { display: block; }
+
+.prog .desc { display: block; font-size: 12px; color: var(--dim); }
+.prog.locked { cursor: pointer; }

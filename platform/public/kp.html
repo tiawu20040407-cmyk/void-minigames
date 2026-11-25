@@ -15,9 +15,22 @@
   .unl label { display: flex; gap: 6px; align-items: center; margin: 0; color: var(--text); }
   .unl select { width: auto; padding: 3px 6px; font-size: 13px; }
   select.s-open { color: var(--good); border-color: var(--good); }
-  select.s-locked { color: var(--warn); }
+  select.s-locked { color: var(--warn); border-color: var(--warn); }
   .edit { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 6px; }
   .accounts td { font-size: 15px; }
+  .toc { display: flex; gap: 6px 14px; flex-wrap: wrap; font-size: 13px; margin-bottom: 16px; }
+  .entry-row { display: grid; grid-template-columns: 110px 1fr 1.6fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .entry-row .dir { font: 13px var(--mono); color: var(--dim); }
+  .rcpt { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+  .rcpt label { display: flex; gap: 6px; align-items: center; margin: 4px 0; color: var(--text); }
+  .rcpt input { width: auto; }
+  .sentmsg { border: 1px solid var(--line); padding: 10px 12px; margin-bottom: 8px; background: #0d1014; }
+  .sentmsg .body { white-space: pre-wrap; word-break: break-word; color: var(--dim); font-size: 14px; margin-top: 4px; }
+  .sys { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .sys div { border: 1px solid var(--line); padding: 8px 10px; background: #0d1014; }
+  .sys b { display: block; font: 16px var(--mono); color: var(--text); }
+  .sys span { font-size: 12px; color: var(--dim); }
+  @media (max-width: 640px) { .entry-row { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -29,16 +42,55 @@
   </div>
   <h1>KP 控制台</h1>
   <div class="sub" id="sub"></div>
+  <div class="toc">
+    <a href="#p-players">玩家</a><a href="#p-presets">场景预设</a><a href="#p-msg">发送消息</a><a href="#p-entries">游戏入口</a>
+    <a href="#p-invites">邀请码</a><a href="#p-test">测试账号</a><a href="#p-sys">系统状态</a><a href="#p-log">登录记录</a>
+  </div>
 
-  <div class="panel">
+  <div class="panel" id="p-players">
     <h2>玩家</h2>
     <div class="dim" style="font-size:13px;margin-bottom:10px">
-      入口状态：<b>隐藏</b> 玩家看不到；<b>锁定</b> 目前和隐藏一样不显示（之后用于剧情提示）；<b>开放</b> 玩家可以启动。只有审核通过的玩家能启动程序。
+      <b>隐藏</b> 玩家看不到；<b>锁定</b> 玩家看到名字但打不开；<b>开放</b> 可以启动。
+      改动会立刻推送到玩家页面。关闭正在玩的游戏时，玩家这一局可以打完，之后打不开。
     </div>
     <div class="ulist" id="users"></div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="p-presets">
+    <h2>场景预设</h2>
+    <div class="dim" style="font-size:13px">先在上面把每个玩家的入口调好，再在这里保存。应用预设会一次性改成保存时的状态。</div>
+    <div class="row" data-keep>
+      <input id="pname" placeholder="预设名字，例如 10/25 拘留所" maxlength="30" style="flex:1;min-width:180px">
+      <button class="primary" id="psave">保存当前状态为预设</button>
+    </div>
+    <div class="msg" id="pm"></div>
+    <div class="scroll"><table id="presets"></table></div>
+  </div>
+
+  <div class="panel" id="p-msg">
+    <h2>发送消息（秘密情报）</h2>
+    <div class="dim" style="font-size:13px">只发给勾选的玩家。玩家那边会弹窗，点“确认”才关闭；不在线的下次登录时弹出。</div>
+    <div data-keep id="compose">
+      <label>发给</label>
+      <div class="rcpt" id="rcpt"></div>
+      <label>标题</label>
+      <input id="mtitle" maxlength="60">
+      <label>正文</label>
+      <textarea id="mbody" rows="5" maxlength="3000"></textarea>
+      <div class="row"><button class="primary" id="msend">发送</button></div>
+      <div class="msg" id="mm"></div>
+    </div>
+    <h2 style="margin-top:18px">已发送</h2>
+    <div id="sent"></div>
+  </div>
+
+  <div class="panel" id="p-entries">
+    <h2>游戏入口</h2>
+    <div class="dim" style="font-size:13px;margin-bottom:10px">服务器 games/ 里的游戏会自动出现在这里，新游戏默认叫“未命名程序”、对所有人隐藏。名字和说明会显示在玩家终端上。</div>
+    <div id="entries" data-keep></div>
+  </div>
+
+  <div class="panel" id="p-invites">
     <h2>邀请码</h2>
     <div class="row" style="margin-top:0">
       <select id="ho" style="width:auto"></select>
@@ -48,20 +100,20 @@
     <div class="scroll"><table id="invites"></table></div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="p-test">
     <h2>测试账号</h2>
-    <div class="dim" style="font-size:13px">test-ho1（人类）和 test-ho2（仿生人）。点按钮会生成新密码、清空进度并开放全部入口。密码只显示这一次。</div>
+    <div class="dim" style="font-size:13px">test-ho1（人类）和 test-ho2（仿生人）。点按钮会生成新密码、清空进度和消息，并开放全部入口。密码只显示这一次。</div>
     <div class="row"><button id="test">重置测试账号</button></div>
     <div id="testout"></div>
   </div>
 
-  <div class="panel">
-    <h2>直接打开游戏</h2>
-    <div class="dim" style="font-size:13px;margin-bottom:8px">KP 不受解锁限制。</div>
-    <div id="games"></div>
+  <div class="panel" id="p-sys">
+    <h2>系统状态</h2>
+    <div class="sys" id="sys"></div>
+    <div class="row"><button class="small" id="sysr">刷新</button></div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="p-log">
     <h2>登录记录</h2>
     <div class="scroll"><table id="log"></table></div>
   </div>
@@ -74,6 +126,14 @@ let S = null;
 const open = new Set(); // 展开编辑的玩家
 const STATE_NAME = { hidden: '隐藏', locked: '锁定', open: '开放' };
 
+// 正在填写的表单不被推送刷新覆盖：输入时给所在区域打上 dirty 标记，保存或清空后再刷新
+document.addEventListener('input', e => {
+  const box = e.target.closest('[data-keep], .edit');
+  if (box) box.dataset.dirty = '1';
+});
+function clean(el) { if (el) delete el.dataset.dirty; }
+function isDirty(sel) { const el = typeof sel === 'string' ? $(sel) : sel; return !!(el && el.dataset.dirty); }
+
 async function load() {
   const r = await api('/api/kp/state');
   if (!r.ok) return location.replace('/kp/login');
@@ -84,10 +144,18 @@ async function load() {
 function render() {
   $('#sub').textContent = `已登录：${S.kpName}`;
   $('#ho').innerHTML = Object.entries(S.hos).map(([k, v]) => `<option value="${k}">${k}（${v.kind}）</option>`).join('');
+  renderUsers(); renderPresets(); renderCompose(); renderSent(); renderEntries(); renderInvites(); renderLog();
+}
 
-  // 玩家
-  const users = S.users.slice().sort((a, b) => (a.test - b.test) || a.ho.localeCompare(b.ho));
+function sortedUsers() { return S.users.slice().sort((a, b) => (a.test - b.test) || a.ho.localeCompare(b.ho)); }
+
+function renderUsers() {
+  // 正在编辑的玩家卡片保留原样
+  const keep = {};
+  for (const el of $$('.player')) if (isDirty($('.edit', el))) keep[el.dataset.id] = el;
+  const users = sortedUsers();
   $('#users').innerHTML = users.length ? users.map(u => {
+    if (keep[u.id]) return `<div data-placeholder="${u.id}"></div>`;
     const st = u.status === 'approved' ? '<span class="tag good">已审核</span>' : '<span class="tag warn">待审核</span>';
     const unl = S.entries.map(e => {
       const v = (S.unlocks[u.id] && S.unlocks[u.id][e.id]) || 'hidden';
@@ -97,6 +165,7 @@ function render() {
     }).join('');
     return `<div class="player" data-id="${u.id}">
       <div class="hd">
+        <span class="dot ${u.online ? 'on' : ''}" title="${u.online ? '在线' : '离线'}"></span>
         <span class="tag">${esc(u.ho)}</span>
         <span class="name">${esc(u.sheet.name)}</span>
         <span class="dim">${esc(u.username)} · ${esc(u.kind)} · HP ${u.hpNow}/${u.sheet.hp}</span>
@@ -105,20 +174,73 @@ function render() {
         ${u.status === 'approved'
           ? `<button class="small" data-act="pending">退回修改</button>`
           : `<button class="small primary" data-act="approve">审核通过</button>`}
+        <a class="btn small" href="/terminal?as=${u.id}" target="_blank" rel="noopener">预览视角</a>
         <button class="small" data-act="edit">${open.has(u.id) ? '收起' : '编辑'}</button>
       </div>
-      <div class="unl">${unl}</div>
+      <div class="unl">${unl || '<span class="dim">还没有游戏入口</span>'}</div>
       ${open.has(u.id) ? `<div class="edit">
         <div class="sheet"></div>
         <div class="grid"><div><label>当前 HP</label><input name="hpNow" type="number" min="0" max="99" value="${u.hpNow}"></div>
           <div><label>重设密码（留空不改）</label><input name="newpw" type="text" autocomplete="off"></div></div>
-        <div class="row"><button class="small primary" data-act="save">保存</button><button class="small danger" data-act="delete">删除玩家</button></div>
+        <div class="row"><button class="small primary" data-act="save">保存</button><button class="small" data-act="cancel">取消</button><button class="small danger" data-act="delete">删除玩家</button></div>
         <div class="msg"></div></div>` : ''}
     </div>`;
   }).join('') : '<div class="dim">还没有玩家。先生成邀请码发给玩家。</div>';
-  for (const u of users) if (open.has(u.id)) sheetInputs($(`.player[data-id="${u.id}"] .sheet`), S.fields, u.sheet);
+  for (const [id, el] of Object.entries(keep)) { const ph = $(`[data-placeholder="${id}"]`); if (ph) ph.replaceWith(el); }
+  for (const u of users) if (open.has(u.id) && !keep[u.id]) sheetInputs($(`.player[data-id="${u.id}"] .sheet`), S.fields, u.sheet);
+}
 
-  // 邀请码
+// 只更新在线点，不动其他内容
+function renderDots() {
+  for (const u of S.users) {
+    const d = $(`.player[data-id="${u.id}"] .dot`);
+    if (d) { d.classList.toggle('on', u.online); d.title = u.online ? '在线' : '离线'; }
+  }
+}
+
+function renderPresets() {
+  $('#presets').innerHTML = S.presets.length ? '<tr><th>预设</th><th>保存时间</th><th></th></tr>' + S.presets.map(p =>
+    `<tr><td>${esc(p.name)}</td><td class="dim">${fmtTime(p.updatedAt)}</td><td style="white-space:nowrap">
+      <button class="small primary" data-papply="${p.id}">应用</button>
+      <button class="small" data-pover="${p.id}">用当前状态覆盖</button>
+      <button class="small" data-prename="${p.id}">重命名</button>
+      <button class="small danger" data-pdel="${p.id}">删除</button></td></tr>`).join('') : '';
+}
+
+function renderCompose() {
+  const checked = new Set($$('#rcpt input:checked').map(i => i.value));
+  $('#rcpt').innerHTML = sortedUsers().map(u =>
+    `<label><input type="checkbox" value="${u.id}" ${checked.has(String(u.id)) ? 'checked' : ''}>${esc(u.ho)} ${esc(u.sheet.name)}${u.test ? '（测试）' : ''}</label>`).join('')
+    || '<span class="dim">还没有玩家</span>';
+}
+
+function renderSent() {
+  const byId = Object.fromEntries(S.users.map(u => [u.id, u]));
+  $('#sent').innerHTML = S.messages.length ? S.messages.map(m => {
+    const who = m.to.map(id => {
+      const u = byId[id];
+      const name = u ? `${u.ho} ${u.sheet.name}` : '（已删除）';
+      return m.readBy[id] ? `<span class="tag good">${esc(name)} 已读</span>` : `<span class="tag warn">${esc(name)} 未读</span>`;
+    }).join(' ');
+    return `<div class="sentmsg"><div class="hd" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <b>${esc(m.title)}</b><span class="dim" style="font-size:12px">${fmtTime(m.t)}</span><span style="flex:1"></span>
+      <button class="small danger" data-mdel="${m.id}">删除</button></div>
+      <div style="margin-top:6px">${who}</div><div class="body">${esc(m.body)}</div></div>`;
+  }).join('') : '<div class="dim">还没有发过消息。</div>';
+}
+
+function renderEntries() {
+  if (isDirty('#entries')) return;
+  $('#entries').innerHTML = S.entries.length ? S.entries.map(e =>
+    `<div class="entry-row" data-eid="${e.id}"><span class="dir">games/${esc(e.id)}</span>
+      <input name="ename" maxlength="30" value="${esc(e.name)}" placeholder="名字">
+      <input name="edesc" maxlength="200" value="${esc(e.desc)}" placeholder="说明（可不填）">
+      <span style="white-space:nowrap"><button class="small primary" data-esave="${e.id}">保存</button>
+      <a class="btn small" href="${e.url}" target="_blank" rel="noopener">打开</a></span></div>`).join('')
+    : '<div class="dim">服务器 games/ 里还没有游戏。</div>';
+}
+
+function renderInvites() {
   const byId = Object.fromEntries(S.users.map(u => [u.id, u]));
   $('#invites').innerHTML = S.invites.length ? '<tr><th>邀请码</th><th>HO</th><th>状态</th><th>生成时间</th><th></th></tr>' + S.invites.map(i => {
     let st, act = '';
@@ -127,12 +249,21 @@ function render() {
     else { st = '<span class="tag warn">未使用</span>'; act = `<button class="small" data-copy="${i.code}">复制</button> <button class="small danger" data-revoke="${i.code}">作废</button>`; }
     return `<tr><td class="mono">${esc(i.code)}</td><td>${esc(i.ho)}</td><td>${st}</td><td class="dim">${fmtTime(i.createdAt)}</td><td style="white-space:nowrap">${act}</td></tr>`;
   }).join('') : '';
+}
 
-  $('#games').innerHTML = S.entries.map(e => `<div class="prog"><span>${esc(e.name)}</span><a class="btn small" href="${e.url}" target="_blank" rel="noopener">打开</a></div>`).join('');
-
+function renderLog() {
   $('#log').innerHTML = '<tr><th>时间</th><th>账号</th><th>类型</th><th>结果</th><th>IP</th></tr>' + S.loginLog.map(l =>
     `<tr><td class="dim">${fmtTime(l.t)}</td><td>${esc(l.username)}</td><td>${{ player: '玩家', kp: 'KP', register: '注册' }[l.kind] || esc(l.kind)}</td>
      <td>${l.ok ? '<span class="tag good">成功</span>' : '<span class="tag bad">失败</span>'}</td><td class="mono dim">${esc(l.ip)}</td></tr>`).join('');
+}
+
+async function loadSys() {
+  const r = await api('/api/kp/system');
+  if (!r.ok) return;
+  const h = Math.floor(r.uptime / 3600000), m = Math.floor(r.uptime / 60000) % 60;
+  const cell = (v, k) => `<div><b>${esc(v)}</b><span>${k}</span></div>`;
+  $('#sys').innerHTML = cell(r.version, '代码版本') + cell(`${h} 小时 ${m} 分`, '已运行') + cell(r.memoryMB + ' MB', '内存占用（上限 256）') +
+    cell(r.dataKB + ' KB', '数据文件') + cell(r.lastBackup || '无', '最近备份') + cell(r.node, 'Node 版本');
 }
 
 document.addEventListener('change', async e => {
@@ -149,7 +280,8 @@ document.addEventListener('click', async e => {
   const card = b.closest('.player');
   const id = card && Number(card.dataset.id);
   const act = b.dataset.act;
-  if (act === 'edit') { open.has(id) ? open.delete(id) : open.add(id); return render(); }
+  if (act === 'edit') { open.has(id) ? open.delete(id) : open.add(id); clean($('.edit', card)); return renderUsers(); }
+  if (act === 'cancel') { open.delete(id); clean($('.edit', card)); return load(); }
   if (act === 'approve' || act === 'pending') {
     const r = await api('/api/kp/user', { id, status: act === 'approve' ? 'approved' : 'pending' });
     if (!r.ok) alert(r.error);
@@ -161,15 +293,80 @@ document.addEventListener('click', async e => {
     if (pw) body.password = pw;
     const r = await api('/api/kp/user', body);
     if (!r.ok) return say($('.edit .msg', card), r.error);
-    open.delete(id);
+    open.delete(id); clean($('.edit', card));
     return load();
   }
   if (act === 'delete') {
-    if (!confirm('删除这个玩家？角色卡和解锁状态都会删除，不能恢复。')) return;
+    if (!confirm('删除这个玩家？角色卡、解锁状态和发给他的消息都会删除，不能恢复。')) return;
     await api('/api/kp/user/delete', { id });
-    open.delete(id);
+    open.delete(id); clean($('.edit', card));
     return load();
   }
+  // 预设
+  if (b.id === 'psave') {
+    const r = await api('/api/kp/preset/save', { name: $('#pname').value });
+    say('#pm', r.ok ? '已保存' : r.error, r.ok ? 'good' : 'bad');
+    if (r.ok) { $('#pname').value = ''; clean(b.closest('[data-keep]')); load(); }
+    return;
+  }
+  if (b.dataset.papply) {
+    const v = await api('/api/kp/preset/view', { id: b.dataset.papply });
+    if (!v.ok) return alert(v.error);
+    const byId = Object.fromEntries(S.users.map(u => [u.id, u]));
+    const names = Object.fromEntries(S.entries.map(x => [x.id, x.name]));
+    const lines = Object.entries(v.preset.states).filter(([uid]) => byId[uid]).map(([uid, st]) =>
+      `${byId[uid].ho} ${byId[uid].sheet.name}：` + Object.entries(st).filter(([eid]) => names[eid]).map(([eid, s]) => `${names[eid]}=${STATE_NAME[s]}`).join('，'));
+    if (!confirm(`应用预设「${v.preset.name}」？\n\n${lines.join('\n') || '（预设里没有玩家）'}\n\n预设保存后才加入的玩家或游戏不受影响。`)) return;
+    const r = await api('/api/kp/preset/apply', { id: b.dataset.papply });
+    say('#pm', r.ok ? `已应用「${v.preset.name}」` : r.error, r.ok ? 'good' : 'bad');
+    return load();
+  }
+  if (b.dataset.pover) {
+    if (!confirm('用现在的入口状态覆盖这个预设？')) return;
+    const r = await api('/api/kp/preset/save', { id: b.dataset.pover });
+    say('#pm', r.ok ? '已覆盖' : r.error, r.ok ? 'good' : 'bad');
+    return load();
+  }
+  if (b.dataset.prename) {
+    const p = S.presets.find(x => x.id === b.dataset.prename);
+    const name = prompt('新名字', p ? p.name : '');
+    if (!name) return;
+    const r = await api('/api/kp/preset/rename', { id: b.dataset.prename, name });
+    if (!r.ok) alert(r.error);
+    return load();
+  }
+  if (b.dataset.pdel) {
+    if (!confirm('删除这个预设？')) return;
+    await api('/api/kp/preset/delete', { id: b.dataset.pdel });
+    return load();
+  }
+  // 消息
+  if (b.id === 'msend') {
+    const to = $$('#rcpt input:checked').map(i => Number(i.value));
+    const r = await api('/api/kp/message/send', { to, title: $('#mtitle').value, body: $('#mbody').value });
+    if (!r.ok) return say('#mm', r.error);
+    say('#mm', '已发送', 'good');
+    $('#mtitle').value = ''; $('#mbody').value = '';
+    for (const i of $$('#rcpt input')) i.checked = false;
+    clean($('#compose'));
+    return load();
+  }
+  if (b.dataset.mdel) {
+    if (!confirm('删除这条消息？玩家那边也会一起删除。')) return;
+    await api('/api/kp/message/delete', { id: b.dataset.mdel });
+    return load();
+  }
+  // 入口
+  if (b.dataset.esave) {
+    const row = b.closest('.entry-row');
+    const r = await api('/api/kp/entry', { id: b.dataset.esave, name: $('[name=ename]', row).value, desc: $('[name=edesc]', row).value });
+    if (!r.ok) return alert(r.error);
+    b.textContent = '已保存';
+    clean($('#entries'));
+    setTimeout(load, 600);
+    return;
+  }
+  // 邀请码
   if (b.dataset.revoke) {
     if (!confirm('作废这个邀请码？')) return;
     await api('/api/kp/invite/revoke', { code: b.dataset.revoke });
@@ -192,9 +389,30 @@ document.addEventListener('click', async e => {
       r.accounts.map(a => `<tr><td class="mono">${esc(a.username)}</td><td class="mono">${esc(a.password)}</td><td>${esc(a.ho)}</td></tr>`).join('') + '</table>';
     return load();
   }
+  if (b.id === 'sysr') return loadSys();
 });
 
-load();
+// 服务器推送：玩家上下线只更新在线点，其他变化重新读取（正在填写的表单不会被覆盖）
+let timer = null, needFull = false;
+function connect() {
+  const es = new EventSource('/api/events');
+  es.addEventListener('state', ev => {
+    let what = 'state';
+    try { what = JSON.parse(ev.data).what; } catch {}
+    if (what !== 'presence') needFull = true; // 短时间内收到多条推送时，只要有一条需要完整刷新就完整刷新
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const full = needFull; needFull = false;
+      if (!full) {
+        const r = await api('/api/kp/state');
+        if (r.ok) { S = r; renderDots(); }
+      } else load();
+    }, 200);
+  });
+  es.onerror = () => { if (es.readyState === EventSource.CLOSED) setTimeout(() => load().then(connect), 5000); };
+}
+load().then(connect);
+loadSys();
 </script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 # VOID 平台
 
-登录、注册、KP 控制台，以及受保护的游戏文件。不依赖任何第三方包，Node 18 以上即可运行，不需要 `npm install`。
+登录、注册、KP 控制台（审核、即时解锁、场景预设、秘密消息、预览视角、系统状态），以及受保护的游戏文件。不依赖任何第三方包，Node 18 以上即可运行，不需要 `npm install`。
 
 ## 文件
 
@@ -9,7 +9,8 @@ platform/
   server.js        后端入口
   lib/db.js        数据存储（data/db.json，每天自动备份到 data/backup/，保留 14 天）
   lib/auth.js      密码散列、邀请码、登录限流
-  lib/entries.js   可解锁的入口列表；新游戏做好后在这里加一行
+  lib/entries.js   自动列出 games/ 下的游戏（名字和说明在控制台填写）
+  lib/events.js    服务器推送（SSE），让玩家页面和控制台即时更新
   public/          页面
   tools/reset-kp.js  忘记 KP 密码时用
   data/            运行数据（不进仓库）
@@ -89,11 +90,23 @@ cd /opt/1panel/apps/openresty/openresty/www/sites/void.xn--rht5f.space/index && 
 
 ## 之后更新
 
-- 只改了游戏（`games/` 下）：`git pull` 即可。
+- 只改了游戏（`games/` 下）：`git pull` 即可。新游戏一分钟内会出现在控制台“游戏入口”里，默认叫“未命名程序”、对所有人隐藏。
 - 改了平台（`platform/` 下）：`git pull` 后在运行环境里 **重启** `void-platform`。
 
 ## 常见问题
 
+- **玩家页面不即时更新**（要手动刷新才变）：即时推送用的是 SSE，经过 OpenResty 和 Cloudflare 通常不用额外设置。如果不生效，把浏览器开发者工具里 `/api/events` 这个请求的截图发给 Claude。
+
 - **忘记 KP 密码或密令**：在运行环境的终端（或服务器上源码目录里）执行 `node platform/tools/reset-kp.js`，然后重启平台，日志里会出现新的初始化码。玩家数据不受影响。
 - **恢复备份**：停止平台，用 `platform/data/backup/db-日期.json` 覆盖 `platform/data/db.json`，再启动。
 - **内存**：启动命令限制了内存上限 256MB，平时占用约 50MB，不影响 SillyTavern。
+
+## 自动测试
+
+改完代码后在本地跑一遍，覆盖登录、注册、审核、解锁推送、游戏访问控制、预设、消息、预览等全部流程：
+
+```
+python tools/test/platform_test.py
+```
+
+需要 Python 和 playwright（`pip install playwright && python -m playwright install chromium`）。测试使用临时数据目录，不影响正式数据。

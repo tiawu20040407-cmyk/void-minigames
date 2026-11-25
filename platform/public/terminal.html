@@ -7,58 +7,152 @@
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+<div id="pv"></div>
 <div class="scan"></div>
 <div class="wrap" style="max-width:720px">
   <div class="top">
     <div class="brand"><b>BIONICS DIV.</b> // TERMINAL</div>
-    <div class="nav"><a href="/intranet">警察厅内网</a><a href="#" id="out">退出</a></div>
+    <div class="nav" id="nav"><a href="/intranet">警察厅内网</a><a href="#" id="out">退出</a></div>
   </div>
   <div id="main" class="dim">读取中……</div>
 </div>
+<div id="modal"></div>
 <script src="/static/common.js"></script>
 <script>
+// 预览模式：KP 打开 /terminal?as=玩家id，只读
+const AS = new URLSearchParams(location.search).get('as');
+const Q = AS ? '?as=' + encodeURIComponent(AS) : '';
 $('#out').addEventListener('click', e => { e.preventDefault(); logout(); });
 
 let fields = [];
+let me = null;
+let messages = [];
+const openMsgs = new Set();
+
 async function render() {
-  const [me, meta] = await Promise.all([api('/api/me'), api('/api/meta')]);
-  if (!me.user) return location.replace('/');
-  if (me.user.role === 'kp') return location.replace('/kp');
-  fields = meta.fields || [];
-  const u = me.user;
+  const [r, meta] = await Promise.all([api('/api/me' + Q), fields.length ? null : api('/api/meta')]);
+  if (meta) fields = meta.fields || [];
+  if (!r.user) return location.replace(AS ? '/kp' : '/');
+  if (r.user.role === 'kp') return location.replace('/kp');
+  me = r.user;
+  if (r.preview) {
+    $('#pv').innerHTML = `<div class="preview-bar">预览：${esc(me.username)}（${esc(me.ho)}）看到的画面 · 只读</div>`;
+    $('#nav').innerHTML = '<a href="/kp">返回控制台</a>';
+  }
+  const u = me;
   const head = `<h1>${esc(u.sheet.name)}</h1>
     <div class="sub">${esc(u.ho)} · ${esc(u.kind)} · 账号 ${esc(u.username)}${u.test ? ' · <span class="tag warn">测试账号</span>' : ''}</div>`;
 
   if (u.status !== 'approved') {
     $('#main').className = '';
     $('#main').innerHTML = head + `
-      <div class="notice">登记已提交，等待 KP 审核。审核通过后这里会出现仿生科终端。审核前可以修改角色卡。</div>
+      <div class="notice">登记已提交，等待 KP 审核。审核通过后这里会自动出现仿生科终端。审核前可以修改角色卡。</div>
       <div class="panel"><h2>角色卡</h2><div id="sheet"></div>
-        <div class="row"><button class="primary" id="save">保存修改</button></div>
+        ${AS ? '' : '<div class="row"><button class="primary" id="save">保存修改</button></div>'}
         <div class="msg" id="m"></div></div>`;
-    sheetInputs($('#sheet'), fields, u.sheet);
-    $('#save').addEventListener('click', async () => {
-      const r = await api('/api/sheet', { sheet: readSheet($('#sheet'), fields) });
-      say('#m', r.ok ? '已保存' : r.error, r.ok ? 'good' : 'bad');
+    sheetInputs($('#sheet'), fields, u.sheet, !!AS);
+    if (!AS) $('#save').addEventListener('click', async () => {
+      const res = await api('/api/sheet', { sheet: readSheet($('#sheet'), fields) });
+      say('#m', res.ok ? '已保存' : res.error, res.ok ? 'good' : 'bad');
     });
     return;
   }
 
-  const ent = await api('/api/entries');
+  const [ent, msg] = await Promise.all([api('/api/entries' + Q), api('/api/messages' + Q)]);
+  messages = msg.messages || [];
   const progs = (ent.entries || []).map(e =>
-    `<div class="prog"><span>${esc(e.name)}</span><a class="btn small" href="${esc(e.url)}" target="_blank" rel="noopener">启动</a></div>`).join('');
+    `<div class="prog"><span>${esc(e.name)}${e.desc ? `<span class="desc">${esc(e.desc)}</span>` : ''}</span>` +
+    (AS ? '<span class="tag good">可启动</span>' : `<a class="btn small" href="${esc(e.url)}" target="_blank" rel="noopener">启动</a>`) + '</div>').join('');
+  const locked = (ent.locked || []).map(e =>
+    `<div class="prog locked" data-locked><span>${esc(e.name)}</span><span class="mono">LOCKED</span></div>`).join('');
   $('#main').className = '';
   // 第 3 步会换成仿生人 HUD / Windows 风格办公电脑
   $('#main').innerHTML = head + `
     <div class="panel"><h2>程序</h2>
-      ${progs || '<div class="dim" style="margin-bottom:8px">暂无可用程序。</div>'}
-      <div class="prog locked"><span>其他程序</span><span class="mono">ACCESS DENIED · 权限不足</span></div>
+      ${progs || locked ? progs + locked : '<div class="dim" style="margin-bottom:8px">暂无可用程序。</div>'}
+      <div class="prog locked" style="cursor:default"><span>其他程序</span><span class="mono">ACCESS DENIED · 权限不足</span></div>
+      <div class="msg" id="lm"></div>
     </div>
+    <div class="panel"><h2>消息</h2><div id="msgs"></div></div>
     <div class="panel"><h2>角色卡</h2><div id="sheet"></div>
       <div class="dim" style="font-size:13px;margin-top:10px">角色卡已由 KP 锁定。当前 HP：${u.hpNow} / ${u.sheet.hp}</div></div>`;
   sheetInputs($('#sheet'), fields, u.sheet, true);
+  renderMsgs();
+  if (!AS) showNextUnread();
 }
-render();
+
+function renderMsgs() {
+  const box = $('#msgs');
+  if (!box) return;
+  box.innerHTML = messages.length ? messages.map(m =>
+    `<div class="msgitem ${m.read ? '' : 'unread'} ${openMsgs.has(m.id) ? 'open' : ''}" data-mid="${esc(m.id)}">
+      <div class="t">${fmtTime(m.t)}${m.read ? '' : ' · 未读'}</div><div>${esc(m.title)}</div><div class="body">${esc(m.body)}</div></div>`).join('')
+    : '<div class="dim">暂无消息。</div>';
+}
+
+document.addEventListener('click', e => {
+  const it = e.target.closest('.msgitem');
+  if (it) { const id = it.dataset.mid; openMsgs.has(id) ? openMsgs.delete(id) : openMsgs.add(id); renderMsgs(); return; }
+  if (e.target.closest('[data-locked]')) say('#lm', '权限不足。');
+});
+
+// 未读消息弹窗：一条一条显示，点“确认”才关闭
+let showing = false;
+function showNextUnread() {
+  if (showing) return;
+  const m = messages.slice().reverse().find(x => !x.read);
+  if (!m) return;
+  showing = true;
+  beep();
+  $('#modal').innerHTML = `<div class="modal-bg"><div class="modal">
+    <div class="kicker">INCOMING · ${fmtTime(m.t)}</div>
+    <h2>${esc(m.title)}</h2><div class="body">${esc(m.body)}</div>
+    <div class="row"><button class="primary full" id="ack">确认</button></div></div></div>`;
+  $('#ack').addEventListener('click', async () => {
+    await api('/api/messages/read', { id: m.id });
+    m.read = true;
+    $('#modal').innerHTML = '';
+    showing = false;
+    renderMsgs();
+    showNextUnread();
+  });
+}
+
+// 提示音：两声短促的电子音。浏览器不允许时静默跳过。
+let actx = null;
+function beep() {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    const t0 = actx.currentTime;
+    for (const [dt, f] of [[0, 880], [0.14, 1320]]) {
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.type = 'square'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0 + dt);
+      g.gain.exponentialRampToValueAtTime(0.08, t0 + dt + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.11);
+      o.connect(g).connect(actx.destination);
+      o.start(t0 + dt); o.stop(t0 + dt + 0.12);
+    }
+    if (navigator.vibrate) navigator.vibrate(80);
+  } catch {}
+}
+// 手机浏览器要求先有一次点击才能出声，这里在第一次点击时解锁
+document.addEventListener('pointerdown', () => { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch {} }, { once: true });
+
+// 服务器推送：有变化就重新读取
+let timer = null;
+function refreshSoon() { clearTimeout(timer); timer = setTimeout(render, 150); }
+function connect() {
+  const es = new EventSource('/api/events');
+  es.addEventListener('refresh', refreshSoon);
+  es.addEventListener('message', refreshSoon);
+  es.addEventListener('state', refreshSoon); // 预览模式下收到的是 KP 的推送
+  es.addEventListener('logout', () => { es.close(); if (!AS) location.replace('/'); });
+  // 连接被拒（例如已退出登录）时，重新读取一次页面状态：未登录会跳回登录页
+  es.onerror = () => { if (es.readyState === EventSource.CLOSED) setTimeout(() => render().then(connect), 5000); };
+}
+render().then(connect);
 </script>
 </body>
 </html>

@@ -249,7 +249,7 @@ const SOUND_FILES = {
 const BGM_FILES = { stage:'', boss:'' };
 const SOUND_VOL = { shot:0.35 };   // 各插槽的单独音量（默认 1）。射击最频繁，调小
 
-const SND = {ctx:null, sfx:null, bgm:null, buf:{}, last:{}, vol:{sfx:0.8, bgm:0.5}, mute:false, bgmEl:null, bgmName:''};
+const SND = {ctx:null, sfx:null, bgm:null, buf:{}, el:{}, eli:{}, last:{}, vol:{sfx:0.8, bgm:0.5}, mute:false, bgmEl:null, bgmName:''};
 const GAP = {shot:0.09, hit:0.05, pop:0.04, small:0.06, warn:0.15};   // 同一声音的最短间隔，防止叠成噪音
 function sndInit(){             // 必须在点击里调用（手机浏览器的要求）
   if (SND.ctx){ if (SND.ctx.state === 'suspended') SND.ctx.resume(); return; }
@@ -258,7 +258,10 @@ function sndInit(){             // 必须在点击里调用（手机浏览器的
   SND.sfx = c.createGain(); SND.sfx.connect(c.destination);
   sndApplyVol();
   for (const k in SOUND_FILES) if (SOUND_FILES[k])
-    fetch('audio/' + SOUND_FILES[k]).then(r => r.arrayBuffer()).then(a => c.decodeAudioData(a)).then(b => SND.buf[k] = b).catch(() => {});
+    fetch('audio/' + SOUND_FILES[k]).then(r => r.arrayBuffer()).then(a => c.decodeAudioData(a)).then(b => SND.buf[k] = b)
+      .catch(() => {   // 本地双击打开（file://）时读不到文件，改用 <audio> 元素播放
+        SND.el[k] = Array.from({length:4}, () => { const a = new Audio('audio/' + SOUND_FILES[k]); a.preload = 'auto'; return a; });
+      });
 }
 function sndApplyVol(){
   if (SND.sfx) SND.sfx.gain.value = SND.mute ? 0 : SND.vol.sfx;
@@ -278,6 +281,8 @@ function sfx(name){
   if (g && SND.last[name] && t - SND.last[name] < g) return; SND.last[name] = t;
   if (SND.buf[name]){ const s = c.createBufferSource(), v = c.createGain(); s.buffer = SND.buf[name];
     v.gain.value = SOUND_VOL[name] ?? 1; s.connect(v); v.connect(SND.sfx); s.start(); return; }
+  if (SND.el[name]){ const pool = SND.el[name], i = SND.eli[name] = ((SND.eli[name]||0)+1) % pool.length, a = pool[i];
+    a.volume = Math.min(1, (SOUND_VOL[name] ?? 1) * SND.vol.sfx); a.currentTime = 0; a.play().catch(() => {}); return; }
   SYNTH[name] && SYNTH[name](c, t);
 }
 // ---- 合成占位音 ----

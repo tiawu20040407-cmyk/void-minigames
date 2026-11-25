@@ -46,7 +46,7 @@ function fmtTime(t) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-async function logout() {
-  await api('/api/logout', {});
-  location.href = '/';
+async function logout(kind = 'player') {
+  await api('/api/logout', { kind });
+  location.href = kind === 'kp' ? '/kp/login' : '/';
 }

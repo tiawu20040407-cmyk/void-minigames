@@ -144,7 +144,7 @@ document.addEventListener('pointerdown', () => { try { actx = actx || new (windo
 let timer = null;
 function refreshSoon() { clearTimeout(timer); timer = setTimeout(render, 150); }
 function connect() {
-  const es = new EventSource('/api/events');
+  const es = new EventSource(AS ? '/api/events?kp=1' : '/api/events');
   es.addEventListener('refresh', refreshSoon);
   es.addEventListener('message', refreshSoon);
   es.addEventListener('state', refreshSoon); // 预览模式下收到的是 KP 的推送

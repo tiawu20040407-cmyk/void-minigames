@@ -120,7 +120,7 @@
 </div>
 <script src="/static/common.js"></script>
 <script>
-$('#out').addEventListener('click', e => { e.preventDefault(); logout(); });
+$('#out').addEventListener('click', e => { e.preventDefault(); logout('kp'); });
 
 let S = null;
 const open = new Set(); // 展开编辑的玩家
@@ -397,7 +397,7 @@ document.addEventListener('click', async e => {
 // 服务器推送：玩家上下线只更新在线点，其他变化重新读取（正在填写的表单不会被覆盖）
 let timer = null, needFull = false;
 function connect() {
-  const es = new EventSource('/api/events');
+  const es = new EventSource('/api/events?kp=1');
   es.addEventListener('state', ev => {
     let what = 'state';
     try { what = JSON.parse(ev.data).what; } catch {}

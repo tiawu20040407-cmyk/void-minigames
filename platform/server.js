@@ -92,8 +92,11 @@ function parseCookies(req) {
   return out;
 }
 
-function setCookie(req, res, value, maxAgeMs) {
-  const parts = [`void_sid=${value}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${Math.floor(maxAgeMs / 1000)}`];
+// KP 和玩家用两个不同的 cookie，同一个浏览器里可以同时登录 KP 和一个玩家
+const COOKIE = { player: 'void_sid', kp: 'void_kp' };
+
+function setCookie(req, res, name, value, maxAgeMs) {
+  const parts = [`${name}=${value}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${Math.floor(maxAgeMs / 1000)}`];
   if (isHttps(req)) parts.push('Secure');
   res.setHeader('Set-Cookie', parts.join('; '));
 }
@@ -131,14 +134,16 @@ function readBody(req) {
   });
 }
 
-function currentUser(req) {
-  const sid = parseCookies(req).void_sid;
+// which：'player' 只看玩家登录，'kp' 只看 KP 登录，不填则先玩家后 KP
+function currentUser(req, which) {
+  if (!which) return currentUser(req, 'player') || currentUser(req, 'kp');
+  const sid = parseCookies(req)[COOKIE[which]];
   if (!sid) return null;
   const s = db.sessions[sid];
   if (!s) return null;
   if (s.exp < now()) { delete db.sessions[sid]; return null; }
   const u = db.users.find(x => x.id === s.uid);
-  return u ? { user: u, sid } : null;
+  return u && u.role === which ? { user: u, sid } : null;
 }
 
 function startSession(req, res, user) {
@@ -147,7 +152,7 @@ function startSession(req, res, user) {
   const ttl = user.role === 'kp' ? KP_SESSION : PLAYER_SESSION;
   db.sessions[sid] = { uid: user.id, exp: now() + ttl };
   DB.save();
-  setCookie(req, res, sid, ttl);
+  setCookie(req, res, COOKIE[user.role], sid, ttl);
 }
 
 function endSessionsOf(uid) {
@@ -225,13 +230,14 @@ function canLoadAsset(user, entry) {
 
 // 预览：KP 可以带 ?as=玩家id 查看玩家视角
 function viewer(req, url) {
-  const cu = currentUser(req);
-  if (!cu) return null;
   const as = url.searchParams.get('as');
-  if (as && cu.user.role === 'kp') {
-    const p = findPlayer(as);
+  if (as) {
+    const kp = currentUser(req, 'kp');
+    const p = kp && findPlayer(as);
     return p ? { user: p, preview: true } : null;
   }
+  const cu = currentUser(req);
+  if (!cu) return null;
   return { user: cu.user, preview: false };
 }
 
@@ -301,8 +307,8 @@ route('GET', '/api/meta', (req, res) => ok(res, {
 }));
 
 // 推送连接
-route('GET', '/api/events', (req, res) => {
-  const cu = currentUser(req);
+route('GET', '/api/events', (req, res, body, url) => {
+  const cu = currentUser(req, url.searchParams.get('kp') ? 'kp' : 'player');
   if (!cu) return err(res, 401, '请先登录');
   EV.add(cu.user.id, req, res);
 });
@@ -325,10 +331,11 @@ route('POST', '/api/login', async (req, res, body) => {
   ok(res, { ok: true, user: publicUser(u) });
 });
 
-route('POST', '/api/logout', (req, res) => {
-  const cu = currentUser(req);
+route('POST', '/api/logout', (req, res, body) => {
+  const which = body.kind === 'kp' ? 'kp' : 'player';
+  const cu = currentUser(req, which);
   if (cu) { delete db.sessions[cu.sid]; DB.save(); }
-  setCookie(req, res, '', 0);
+  setCookie(req, res, COOKIE[which], '', 0);
   ok(res);
 });
 
@@ -364,7 +371,7 @@ route('POST', '/api/register', async (req, res, body) => {
 });
 
 route('POST', '/api/sheet', async (req, res, body) => {
-  const cu = currentUser(req);
+  const cu = currentUser(req, 'player');
   if (!cu || cu.user.role !== 'player') return err(res, 401, '请先登录');
   if (cu.user.status !== 'pending') return err(res, 403, '角色卡已由 KP 锁定，需要修改请联系 KP');
   try { cu.user.sheet = cleanSheet(body.sheet || {}); } catch (e) { return err(res, 400, e.message); }
@@ -395,7 +402,7 @@ route('GET', '/api/messages', (req, res, body, url) => {
 });
 
 route('POST', '/api/messages/read', async (req, res, body) => {
-  const cu = currentUser(req);
+  const cu = currentUser(req, 'player');
   if (!cu || cu.user.role !== 'player') return err(res, 401, '请先登录');
   const m = db.messages.find(x => x.id === body.id && x.to.includes(cu.user.id));
   if (!m) return err(res, 404, '没有这条消息');
@@ -405,7 +412,7 @@ route('POST', '/api/messages/read', async (req, res, body) => {
 
 // ----- KP -----
 function requireKp(req, res) {
-  const cu = currentUser(req);
+  const cu = currentUser(req, 'kp');
   if (!cu || cu.user.role !== 'kp') { err(res, 401, '需要 KP 登录'); return null; }
   return cu.user;
 }
@@ -741,7 +748,7 @@ const server = http.createServer(async (req, res) => {
     if (m) {
       const entry = entryList().find(e => e.dir === m[1]);
       if (!entry) return notFound(res);
-      const cu = currentUser(req);
+      const cu = currentUser(req, 'kp') || currentUser(req, 'player');
       const user = cu && cu.user;
       const rel = !m[2] || m[2] === '/' ? 'index.html' : m[2].slice(1);
       const isPage = rel.endsWith('.html');

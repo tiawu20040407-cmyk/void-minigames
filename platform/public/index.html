@@ -13,6 +13,7 @@
   <h1>职员终端 · 登录</h1>
   <div class="sub">AUTHORIZED PERSONNEL ONLY</div>
 
+  <div class="notice" id="kpnote" style="display:none"></div>
   <form class="panel" id="f">
     <label for="u">账号</label>
     <input id="u" name="username" autocomplete="username" required>
@@ -35,7 +36,9 @@
 <script>
 (async () => {
   const me = await api('/api/me');
-  if (me.user) location.replace(me.user.role === 'kp' ? '/kp' : '/terminal');
+  if (me.user && me.user.role === 'player') return location.replace('/terminal');
+  // 只有 KP 登录时不跳转，方便在同一个浏览器里再登录一个玩家账号
+  if (me.user && me.user.role === 'kp') $('#kpnote').style.display = 'block', $('#kpnote').innerHTML = '已以 KP 身份登录。<a href="/kp">返回控制台</a>，或在下面登录玩家账号测试。';
 })();
 $('#f').addEventListener('submit', async e => {
   e.preventDefault();

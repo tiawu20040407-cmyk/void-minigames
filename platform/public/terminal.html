@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>仿生科终端</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="scan"></div>
+<div class="wrap" style="max-width:720px">
+  <div class="top">
+    <div class="brand"><b>BIONICS DIV.</b> // TERMINAL</div>
+    <div class="nav"><a href="/intranet">警察厅内网</a><a href="#" id="out">退出</a></div>
+  </div>
+  <div id="main" class="dim">读取中……</div>
+</div>
+<script src="/static/common.js"></script>
+<script>
+$('#out').addEventListener('click', e => { e.preventDefault(); logout(); });
+
+let fields = [];
+async function render() {
+  const [me, meta] = await Promise.all([api('/api/me'), api('/api/meta')]);
+  if (!me.user) return location.replace('/');
+  if (me.user.role === 'kp') return location.replace('/kp');
+  fields = meta.fields || [];
+  const u = me.user;
+  const head = `<h1>${esc(u.sheet.name)}</h1>
+    <div class="sub">${esc(u.ho)} · ${esc(u.kind)} · 账号 ${esc(u.username)}${u.test ? ' · <span class="tag warn">测试账号</span>' : ''}</div>`;
+
+  if (u.status !== 'approved') {
+    $('#main').className = '';
+    $('#main').innerHTML = head + `
+      <div class="notice">登记已提交，等待 KP 审核。审核通过后这里会出现仿生科终端。审核前可以修改角色卡。</div>
+      <div class="panel"><h2>角色卡</h2><div id="sheet"></div>
+        <div class="row"><button class="primary" id="save">保存修改</button></div>
+        <div class="msg" id="m"></div></div>`;
+    sheetInputs($('#sheet'), fields, u.sheet);
+    $('#save').addEventListener('click', async () => {
+      const r = await api('/api/sheet', { sheet: readSheet($('#sheet'), fields) });
+      say('#m', r.ok ? '已保存' : r.error, r.ok ? 'good' : 'bad');
+    });
+    return;
+  }
+
+  const ent = await api('/api/entries');
+  const progs = (ent.entries || []).map(e =>
+    `<div class="prog"><span>${esc(e.name)}</span><a class="btn small" href="${esc(e.url)}" target="_blank" rel="noopener">启动</a></div>`).join('');
+  $('#main').className = '';
+  // 第 3 步会换成仿生人 HUD / Windows 风格办公电脑
+  $('#main').innerHTML = head + `
+    <div class="panel"><h2>程序</h2>
+      ${progs || '<div class="dim" style="margin-bottom:8px">暂无可用程序。</div>'}
+      <div class="prog locked"><span>其他程序</span><span class="mono">ACCESS DENIED · 权限不足</span></div>
+    </div>
+    <div class="panel"><h2>角色卡</h2><div id="sheet"></div>
+      <div class="dim" style="font-size:13px;margin-top:10px">角色卡已由 KP 锁定。当前 HP：${u.hpNow} / ${u.sheet.hp}</div></div>`;
+  sheetInputs($('#sheet'), fields, u.sheet, true);
+}
+render();
+</script>
+</body>
+</html>

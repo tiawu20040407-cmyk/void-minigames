@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>系统管理</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="scan"></div>
+<div class="wrap narrow">
+  <div class="top"><div class="brand"><b>SYSTEM</b> // ADMIN</div><div class="nav"><a href="/">返回</a></div></div>
+  <h1>系统管理</h1>
+  <div class="sub">RESTRICTED</div>
+  <form class="panel" id="f">
+    <label>账号</label>
+    <input name="username" autocomplete="username" required>
+    <label>密码</label>
+    <input name="password" type="password" autocomplete="current-password" required>
+    <label>密令</label>
+    <input name="secret" type="password" autocomplete="off" required>
+    <div class="row"><button class="primary full" type="submit">验证</button></div>
+    <div class="msg" id="m"></div>
+  </form>
+</div>
+<script src="/static/common.js"></script>
+<script>
+$('#f').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = e.target;
+  const r = await api('/api/kp/login', { username: f.username.value, password: f.password.value, secret: f.secret.value });
+  if (!r.ok) return say('#m', r.error);
+  location.href = '/kp';
+});
+</script>
+</body>
+</html>

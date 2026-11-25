@@ -10,8 +10,10 @@ games/
     index.html   单个文件，直接用浏览器打开即可
   footage/       录像排序（第二现场）
     index.html   单个文件；替换图片放进 footage/assets/（见 docs/素材-录像排序.md）
+platform/        平台：登录、注册、KP 控制台、受保护的游戏文件（见 platform/README.md）
 docs/
   设计计划.md    全部小游戏的设计计划、剧情位置、开发顺序
+  平台计划.md    平台的整体计划和开发顺序
 ```
 
 ## 当前进度
@@ -25,6 +27,7 @@ docs/
 | KP 控制台、编辑器 | 未开始 |
 | 部署 | 完成（静态网页），国内访问测试通过 |
 | 联机 | 未开始 |
+| 平台第 1 步（账号系统） | 完成：登录、邀请码注册、KP 登录与控制台、测试账号、游戏文件受保护 |
 
 ## 本地试玩
 
@@ -32,10 +35,11 @@ docs/
 
 ## 部署
 
-- 地址：https://void.岸山.space/hack/ 、https://void.岸山.space/footage/
+- 地址：https://void.岸山.space/ （平台上线后，游戏只能登录后从终端打开；旧地址 /hack/、/footage/ 返回 404）
+- 平台的部署和更新步骤见 `platform/README.md`。
 - 服务器：1Panel + OpenResty 静态网站，代号 `void.xn--rht5f.space`；证书使用 Cloudflare 源站证书 `*.xn--rht5f.space`；Cloudflare 代理开启。
 - 网站 root：`/opt/1panel/apps/openresty/openresty/www/sites/void.xn--rht5f.space/index`（本仓库克隆在这里）
-- 运行目录：`/games`（只公开 games 文件夹，docs、tools、.git 不对外）
+- 运行目录：`/games`（平台上线前的静态部署设置；上线后整个网站反向代理到平台 127.0.0.1:3100，只有平台允许的文件对外）
 - 服务器用只读部署密钥 `~/.ssh/void_deploy` 拉取，SSH 别名 `github-void`
 
 ### 更新
@@ -43,5 +47,7 @@ docs/
 ```
 cd /opt/1panel/apps/openresty/openresty/www/sites/void.xn--rht5f.space/index && git pull
 ```
+
+改了 `platform/` 下的文件，pull 之后还要在 1Panel 运行环境里重启 `void-platform`。
 
 建议在两次跑团之间更新，不要在有人正在玩小游戏时更新。

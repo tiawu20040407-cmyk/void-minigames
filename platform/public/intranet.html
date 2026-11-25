@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>警察厅 内部网络</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="scan"></div>
+<div class="wrap">
+  <div class="top">
+    <div class="brand"><b>METROPOLITAN POLICE</b> // INTRANET</div>
+    <div class="nav" id="nav"><a href="/">登录</a></div>
+  </div>
+  <h1>警察厅 内部网络</h1>
+  <div class="sub">一般职员可阅览</div>
+
+  <!-- 第 4 步会把这里改成 KP 在控制台编辑的内容 -->
+  <div class="panel">
+    <h2>公告</h2>
+    <div class="dim">暂无公告。</div>
+  </div>
+  <div class="panel">
+    <h2>出勤表</h2>
+    <div class="dim">暂无数据。</div>
+  </div>
+  <div class="panel">
+    <h2>任务</h2>
+    <div class="dim">暂无任务。</div>
+  </div>
+  <div class="panel">
+    <h2>关于本模组</h2>
+    <div class="dim">作者与译者信息待补充。</div>
+  </div>
+</div>
+<script src="/static/common.js"></script>
+<script>
+(async () => {
+  const me = await api('/api/me');
+  if (me.user) $('#nav').innerHTML = `<a href="${me.user.role === 'kp' ? '/kp' : '/terminal'}">返回终端</a>`;
+})();
+</script>
+</body>
+</html>

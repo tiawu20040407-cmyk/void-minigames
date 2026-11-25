@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>新职员登记</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="scan"></div>
+<div class="wrap" style="max-width:620px">
+  <div class="top">
+    <div class="brand"><b>METROPOLITAN POLICE</b> // REGISTRATION</div>
+    <div class="nav"><a href="/">返回登录</a></div>
+  </div>
+  <h1>新职员登记</h1>
+  <div class="sub">请输入 KP 发给你的邀请码。邀请码只能使用一次。</div>
+
+  <form id="f">
+    <div class="panel">
+      <h2>账号</h2>
+      <label>邀请码</label>
+      <input class="code" name="code" placeholder="VOID-XXXX-XXXX" autocomplete="off" required>
+      <label>账号名（登录用，2–20 个字）</label>
+      <input name="username" autocomplete="username" required>
+      <label>密码（至少 6 位）</label>
+      <input name="password" type="password" autocomplete="new-password" required>
+      <label>再输入一次密码</label>
+      <input name="password2" type="password" autocomplete="new-password" required>
+    </div>
+
+    <div class="panel">
+      <h2>角色卡</h2>
+      <div class="dim" style="font-size:13px">只填游戏里会用到的几项，其余以骰娘为准。提交后 KP 审核，审核前可以修改。</div>
+      <div id="sheet"></div>
+    </div>
+
+    <button class="primary full" type="submit">提交登记</button>
+    <div class="msg" id="m"></div>
+  </form>
+</div>
+<script src="/static/common.js"></script>
+<script>
+let fields = [];
+(async () => {
+  const meta = await api('/api/meta');
+  fields = meta.fields || [];
+  sheetInputs($('#sheet'), fields);
+})();
+$('#f').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = e.target;
+  if (f.password.value !== f.password2.value) return say('#m', '两次输入的密码不一样');
+  const btn = $('button[type=submit]', f);
+  btn.disabled = true;
+  const r = await api('/api/register', {
+    code: f.code.value, username: f.username.value, password: f.password.value, sheet: readSheet($('#sheet'), fields),
+  });
+  btn.disabled = false;
+  if (!r.ok) return say('#m', r.error);
+  location.href = '/terminal';
+});
+</script>
+</body>
+</html>

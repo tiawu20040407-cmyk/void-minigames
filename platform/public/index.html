@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>警察厅 职员终端</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="scan"></div>
+<div class="wrap narrow">
+  <div class="top"><div class="brand"><b>METROPOLITAN POLICE</b> // TERMINAL</div></div>
+  <h1>职员终端 · 登录</h1>
+  <div class="sub">AUTHORIZED PERSONNEL ONLY</div>
+
+  <form class="panel" id="f">
+    <label for="u">账号</label>
+    <input id="u" name="username" autocomplete="username" required>
+    <label for="p">密码</label>
+    <input id="p" name="password" type="password" autocomplete="current-password" required>
+    <div class="row"><button class="primary full" type="submit">登录</button></div>
+    <div class="msg" id="m"></div>
+  </form>
+
+  <div class="panel">
+    <div class="row" style="margin-top:0">
+      <a class="btn" href="/register" style="flex:1">新职员登记</a>
+      <a class="btn" href="/intranet" style="flex:1">以访客身份进入</a>
+    </div>
+    <div class="dim" style="font-size:13px;margin-top:10px">访客只能查看警察厅内网的公开信息。</div>
+  </div>
+</div>
+<div class="foot">© METROPOLITAN POLICE DEPT. &nbsp;·&nbsp; <a href="/kp/login">系统管理</a></div>
+<script src="/static/common.js"></script>
+<script>
+(async () => {
+  const me = await api('/api/me');
+  if (me.user) location.replace(me.user.role === 'kp' ? '/kp' : '/terminal');
+})();
+$('#f').addEventListener('submit', async e => {
+  e.preventDefault();
+  say('#m', '');
+  const r = await api('/api/login', { username: $('#u').value, password: $('#p').value });
+  if (!r.ok) return say('#m', r.error);
+  location.href = '/terminal';
+});
+</script>
+</body>
+</html>

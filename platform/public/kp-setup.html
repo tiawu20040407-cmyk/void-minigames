@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>KP 初始化</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="scan"></div>
+<div class="wrap narrow">
+  <div class="top"><div class="brand"><b>SYSTEM</b> // SETUP</div></div>
+  <h1>KP 账号初始化</h1>
+  <div class="sub">只需要做一次。初始化码在服务器的平台日志里。</div>
+  <form class="panel" id="f">
+    <label>初始化码</label>
+    <input class="code" name="code" placeholder="SETUP-XXXX-XXXX" autocomplete="off" required>
+    <label>密码（至少 8 位）</label>
+    <input name="password" type="password" autocomplete="new-password" required>
+    <label>再输入一次密码</label>
+    <input name="password2" type="password" autocomplete="new-password" required>
+    <label>密令（至少 4 个字，不要和密码相同）</label>
+    <input name="secret" type="password" autocomplete="off" required>
+    <div class="row"><button class="primary full" type="submit">完成初始化</button></div>
+    <div class="msg" id="m"></div>
+  </form>
+</div>
+<script src="/static/common.js"></script>
+<script>
+$('#f').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = e.target;
+  if (f.password.value !== f.password2.value) return say('#m', '两次输入的密码不一样');
+  const r = await api('/api/kp/setup', { code: f.code.value, password: f.password.value, secret: f.secret.value });
+  if (!r.ok) return say('#m', r.error);
+  f.innerHTML = `<div class="msg good">初始化完成。KP 账号名：${esc(r.username)}</div><div class="row"><a class="btn primary" href="/kp/login">去登录</a></div>`;
+});
+</script>
+</body>
+</html>

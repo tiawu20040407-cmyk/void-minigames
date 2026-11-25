@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>KP 控制台</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .ulist .player { border: 1px solid var(--line); padding: 12px 14px; margin-bottom: 10px; background: #0d1014; }
+  .player .hd { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .player .hd .name { font-weight: 600; }
+  .player .hd .sp { flex: 1; }
+  .unl { display: flex; gap: 8px 16px; flex-wrap: wrap; margin-top: 10px; font-size: 14px; }
+  .unl label { display: flex; gap: 6px; align-items: center; margin: 0; color: var(--text); }
+  .unl select { width: auto; padding: 3px 6px; font-size: 13px; }
+  select.s-open { color: var(--good); border-color: var(--good); }
+  select.s-locked { color: var(--warn); }
+  .edit { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 6px; }
+  .accounts td { font-size: 15px; }
+</style>
+</head>
+<body>
+<div class="scan"></div>
+<div class="wrap">
+  <div class="top">
+    <div class="brand"><b>KP</b> // CONSOLE</div>
+    <div class="nav"><a href="/intranet">内网</a><a href="#" id="out">退出</a></div>
+  </div>
+  <h1>KP 控制台</h1>
+  <div class="sub" id="sub"></div>
+
+  <div class="panel">
+    <h2>玩家</h2>
+    <div class="dim" style="font-size:13px;margin-bottom:10px">
+      入口状态：<b>隐藏</b> 玩家看不到；<b>锁定</b> 目前和隐藏一样不显示（之后用于剧情提示）；<b>开放</b> 玩家可以启动。只有审核通过的玩家能启动程序。
+    </div>
+    <div class="ulist" id="users"></div>
+  </div>
+
+  <div class="panel">
+    <h2>邀请码</h2>
+    <div class="row" style="margin-top:0">
+      <select id="ho" style="width:auto"></select>
+      <button class="primary" id="gen">生成邀请码</button>
+    </div>
+    <div class="msg" id="im"></div>
+    <div class="scroll"><table id="invites"></table></div>
+  </div>
+
+  <div class="panel">
+    <h2>测试账号</h2>
+    <div class="dim" style="font-size:13px">test-ho1（人类）和 test-ho2（仿生人）。点按钮会生成新密码、清空进度并开放全部入口。密码只显示这一次。</div>
+    <div class="row"><button id="test">重置测试账号</button></div>
+    <div id="testout"></div>
+  </div>
+
+  <div class="panel">
+    <h2>直接打开游戏</h2>
+    <div class="dim" style="font-size:13px;margin-bottom:8px">KP 不受解锁限制。</div>
+    <div id="games"></div>
+  </div>
+
+  <div class="panel">
+    <h2>登录记录</h2>
+    <div class="scroll"><table id="log"></table></div>
+  </div>
+</div>
+<script src="/static/common.js"></script>
+<script>
+$('#out').addEventListener('click', e => { e.preventDefault(); logout(); });
+
+let S = null;
+const open = new Set(); // 展开编辑的玩家
+const STATE_NAME = { hidden: '隐藏', locked: '锁定', open: '开放' };
+
+async function load() {
+  const r = await api('/api/kp/state');
+  if (!r.ok) return location.replace('/kp/login');
+  S = r;
+  render();
+}
+
+function render() {
+  $('#sub').textContent = `已登录：${S.kpName}`;
+  $('#ho').innerHTML = Object.entries(S.hos).map(([k, v]) => `<option value="${k}">${k}（${v.kind}）</option>`).join('');
+
+  // 玩家
+  const users = S.users.slice().sort((a, b) => (a.test - b.test) || a.ho.localeCompare(b.ho));
+  $('#users').innerHTML = users.length ? users.map(u => {
+    const st = u.status === 'approved' ? '<span class="tag good">已审核</span>' : '<span class="tag warn">待审核</span>';
+    const unl = S.entries.map(e => {
+      const v = (S.unlocks[u.id] && S.unlocks[u.id][e.id]) || 'hidden';
+      return `<label>${esc(e.name)}<select class="s-${v}" data-unlock="${u.id}" data-entry="${e.id}">` +
+        ['hidden', 'locked', 'open'].map(s => `<option value="${s}" ${s === v ? 'selected' : ''}>${STATE_NAME[s]}</option>`).join('') +
+        '</select></label>';
+    }).join('');
+    return `<div class="player" data-id="${u.id}">
+      <div class="hd">
+        <span class="tag">${esc(u.ho)}</span>
+        <span class="name">${esc(u.sheet.name)}</span>
+        <span class="dim">${esc(u.username)} · ${esc(u.kind)} · HP ${u.hpNow}/${u.sheet.hp}</span>
+        ${st}${u.test ? '<span class="tag">测试</span>' : ''}
+        <span class="sp"></span>
+        ${u.status === 'approved'
+          ? `<button class="small" data-act="pending">退回修改</button>`
+          : `<button class="small primary" data-act="approve">审核通过</button>`}
+        <button class="small" data-act="edit">${open.has(u.id) ? '收起' : '编辑'}</button>
+      </div>
+      <div class="unl">${unl}</div>
+      ${open.has(u.id) ? `<div class="edit">
+        <div class="sheet"></div>
+        <div class="grid"><div><label>当前 HP</label><input name="hpNow" type="number" min="0" max="99" value="${u.hpNow}"></div>
+          <div><label>重设密码（留空不改）</label><input name="newpw" type="text" autocomplete="off"></div></div>
+        <div class="row"><button class="small primary" data-act="save">保存</button><button class="small danger" data-act="delete">删除玩家</button></div>
+        <div class="msg"></div></div>` : ''}
+    </div>`;
+  }).join('') : '<div class="dim">还没有玩家。先生成邀请码发给玩家。</div>';
+  for (const u of users) if (open.has(u.id)) sheetInputs($(`.player[data-id="${u.id}"] .sheet`), S.fields, u.sheet);
+
+  // 邀请码
+  const byId = Object.fromEntries(S.users.map(u => [u.id, u]));
+  $('#invites').innerHTML = S.invites.length ? '<tr><th>邀请码</th><th>HO</th><th>状态</th><th>生成时间</th><th></th></tr>' + S.invites.map(i => {
+    let st, act = '';
+    if (i.usedBy) st = `<span class="tag good">已使用</span> ${esc(byId[i.usedBy] ? byId[i.usedBy].username : '（已删除）')}`;
+    else if (i.revoked) st = '<span class="tag">已作废</span>';
+    else { st = '<span class="tag warn">未使用</span>'; act = `<button class="small" data-copy="${i.code}">复制</button> <button class="small danger" data-revoke="${i.code}">作废</button>`; }
+    return `<tr><td class="mono">${esc(i.code)}</td><td>${esc(i.ho)}</td><td>${st}</td><td class="dim">${fmtTime(i.createdAt)}</td><td style="white-space:nowrap">${act}</td></tr>`;
+  }).join('') : '';
+
+  $('#games').innerHTML = S.entries.map(e => `<div class="prog"><span>${esc(e.name)}</span><a class="btn small" href="${e.url}" target="_blank" rel="noopener">打开</a></div>`).join('');
+
+  $('#log').innerHTML = '<tr><th>时间</th><th>账号</th><th>类型</th><th>结果</th><th>IP</th></tr>' + S.loginLog.map(l =>
+    `<tr><td class="dim">${fmtTime(l.t)}</td><td>${esc(l.username)}</td><td>${{ player: '玩家', kp: 'KP', register: '注册' }[l.kind] || esc(l.kind)}</td>
+     <td>${l.ok ? '<span class="tag good">成功</span>' : '<span class="tag bad">失败</span>'}</td><td class="mono dim">${esc(l.ip)}</td></tr>`).join('');
+}
+
+document.addEventListener('change', async e => {
+  const s = e.target.closest('select[data-unlock]');
+  if (!s) return;
+  const r = await api('/api/kp/unlock', { uid: Number(s.dataset.unlock), entry: s.dataset.entry, state: s.value });
+  if (!r.ok) alert(r.error);
+  load();
+});
+
+document.addEventListener('click', async e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const card = b.closest('.player');
+  const id = card && Number(card.dataset.id);
+  const act = b.dataset.act;
+  if (act === 'edit') { open.has(id) ? open.delete(id) : open.add(id); return render(); }
+  if (act === 'approve' || act === 'pending') {
+    const r = await api('/api/kp/user', { id, status: act === 'approve' ? 'approved' : 'pending' });
+    if (!r.ok) alert(r.error);
+    return load();
+  }
+  if (act === 'save') {
+    const body = { id, sheet: readSheet($('.sheet', card), S.fields), hpNow: Number($('[name=hpNow]', card).value) };
+    const pw = $('[name=newpw]', card).value.trim();
+    if (pw) body.password = pw;
+    const r = await api('/api/kp/user', body);
+    if (!r.ok) return say($('.edit .msg', card), r.error);
+    open.delete(id);
+    return load();
+  }
+  if (act === 'delete') {
+    if (!confirm('删除这个玩家？角色卡和解锁状态都会删除，不能恢复。')) return;
+    await api('/api/kp/user/delete', { id });
+    open.delete(id);
+    return load();
+  }
+  if (b.dataset.revoke) {
+    if (!confirm('作废这个邀请码？')) return;
+    await api('/api/kp/invite/revoke', { code: b.dataset.revoke });
+    return load();
+  }
+  if (b.dataset.copy) {
+    try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = '已复制'; }
+    catch { prompt('复制这个邀请码：', b.dataset.copy); }
+    return;
+  }
+  if (b.id === 'gen') {
+    const r = await api('/api/kp/invite', { ho: $('#ho').value });
+    say('#im', r.ok ? `已生成：${r.code}` : r.error, r.ok ? 'good' : 'bad');
+    return load();
+  }
+  if (b.id === 'test') {
+    const r = await api('/api/kp/test/reset', {});
+    if (!r.ok) return alert(r.error);
+    $('#testout').innerHTML = '<table class="accounts" style="margin-top:12px"><tr><th>账号</th><th>密码</th><th>身份</th></tr>' +
+      r.accounts.map(a => `<tr><td class="mono">${esc(a.username)}</td><td class="mono">${esc(a.password)}</td><td>${esc(a.ho)}</td></tr>`).join('') + '</table>';
+    return load();
+  }
+});
+
+load();
+</script>
+</body>
+</html>

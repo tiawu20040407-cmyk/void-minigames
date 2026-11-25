@@ -25,7 +25,7 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font-family:var(--fon
 #hud .label{color:var(--dim)}
 #err span{display:inline-block;width:10px;height:10px;margin-left:3px;border:1px solid var(--danger)}
 #err span.on{background:var(--danger)}
-#main{position:relative;flex:1;width:100%;max-width:820px;overflow-y:auto;overflow-x:hidden;padding:10px 12px 110px;touch-action:pan-y}
+#main{position:relative;flex:1;width:100%;max-width:820px;overflow-y:auto;overflow-x:hidden;padding:10px 12px 150px;touch-action:pan-y}
 #boot{font-size:12px;line-height:1.6;color:var(--ok);white-space:pre-wrap;margin-bottom:6px}
 #boot .w{color:var(--danger)}
 #msg{min-height:20px;font-size:12px;color:var(--dim);margin-bottom:8px;line-height:1.6}
@@ -103,13 +103,24 @@ button:disabled{opacity:.35;cursor:default}
 @keyframes spot{50%{border-color:transparent}}
 #btnSkipTut{position:fixed;z-index:50;top:44px;right:8px;margin:0;background:var(--bg)}
 /* 一羽 */
-#ichi{position:fixed;z-index:50;right:6px;bottom:6px;display:flex;flex-direction:column;align-items:flex-end;pointer-events:none}
-#ichiC{width:76px;height:76px;cursor:pointer;pointer-events:auto}
-#bubble{pointer-events:auto;max-width:230px;background:var(--fg);color:var(--bg);font-size:12px;line-height:1.6;padding:7px 10px;
+#ichi{position:fixed;z-index:50;right:max(6px, calc(50vw - 404px));bottom:8px;display:flex;flex-direction:column;align-items:flex-end;pointer-events:none}
+#ichiC{width:96px;height:96px;cursor:pointer;pointer-events:auto}
+#bubble{pointer-events:auto;max-width:280px;background:var(--fg);color:var(--bg);font-size:13px;line-height:1.6;padding:8px 12px;
   margin-bottom:4px;position:relative;cursor:pointer;opacity:0;transform:translateY(6px);transition:opacity .2s,transform .2s}
 #bubble.on{opacity:1;transform:none}
-#bubble::after{content:'';position:absolute;right:26px;bottom:-6px;border:6px solid transparent;border-bottom:0;border-top-color:var(--fg)}
+#bubble::after{content:'';position:absolute;right:38px;bottom:-6px;border:6px solid transparent;border-bottom:0;border-top-color:var(--fg)}
 #bubble b{display:block;font-size:10px;color:#6d6a62;letter-spacing:2px}
+/* 教学对话框 */
+#dlg{position:fixed;z-index:55;left:50%;transform:translateX(-50%);bottom:12px;width:min(620px, calc(100vw - 16px));
+  display:flex;gap:12px;align-items:flex-start;background:rgba(11,11,13,.97);border:1px solid var(--fg);padding:10px 14px 10px 10px;cursor:pointer}
+#dlg.top{bottom:auto;top:84px}
+#dlg.shake{animation:shakeX .3s}
+@keyframes shakeX{25%{transform:translateX(calc(-50% - 6px))}75%{transform:translateX(calc(-50% + 6px))}}
+#dlgC{width:88px;height:88px;flex:none}
+#dlg .who{font-size:11px;color:var(--accent);letter-spacing:3px}
+#dlgT{font-size:14px;line-height:1.75;min-height:50px}
+#dlgNext{font-size:11px;color:var(--dim);text-align:right;animation:spot 1s steps(2) infinite}
+@media (max-width:480px){ #dlgC{width:64px;height:64px} #dlgT{font-size:13px} #ichiC{width:80px;height:80px} }
 .hidden{display:none!important}
 </style>
 </head>
@@ -202,6 +213,8 @@ button:disabled{opacity:.35;cursor:default}
 <div id="spot" class="hidden"></div>
 <button type="button" class="mini hidden" id="btnSkipTut">跳过教学 ›</button>
 <div id="ichi"><div id="bubble"><b>一羽</b><span id="bubbleT"></span></div><canvas id="ichiC" width="256" height="256"></canvas></div>
+<div id="dlg" class="hidden"><canvas id="dlgC" width="256" height="256"></canvas>
+  <div style="flex:1"><div class="who">一羽</div><div id="dlgT"></div><div id="dlgNext">▼ 点击继续</div></div></div>
 
 <script>
 {
@@ -316,7 +329,8 @@ const CONFIG = {
   // 画面坐标（640×480）。替换图片后如位置不同，在这里改。
   calBox:   {x:416, y:104, w:112, h:120},   // 教学：日历页（数字写在这里）
   dropsBox: {x:262, y:316, w:170, h:104},   // 极限成功：框住蓝色液体的范围
-  ichiSay: 5500,        // 一羽气泡显示毫秒
+  ichiSay: 8000,        // 一羽气泡显示毫秒（正式关卡）
+  typeMs: 30,           // 教学对话逐字速度（毫秒/字）
 };
 
 // 替换图片：放在 assets/ 文件夹，文件名见 docs/素材-录像排序.md。没有文件时用占位图。
@@ -638,7 +652,6 @@ function say(text, face, dur){
 function sayFrom(key, face){ const L = ICHI[key]; if (!L || !L.length) return;
   ichiIdx[key] = ((ichiIdx[key] ?? -1) + 1) % L.length; say(L[ichiIdx[key]], face); }
 function ichiPool(){
-  if (tut.on) return [ICHI.tut[tut.lineKey] || ICHI.tut.start];
   if (state === 'find'){
     let L = ICHI.general.slice();
     for (const c of R.clues) if (ICHI[c]) L = L.concat(ICHI[c]);
@@ -743,7 +756,7 @@ function openSeg(s){
   $('vCap').classList.add('hidden'); $('vBtns').classList.remove('hidden'); $('pBtns').classList.add('hidden');
   $('btnMark').disabled = false; $('stamp').classList.add('hidden');
   $('viewer').classList.remove('hidden'); fitViewer();
-  if (tut.on && tut.step === 1) tutStep(2);
+  if (tut.on && tut.step === 1) tutSay([[ICHI.tut.look]], () => tutStep(2));
 }
 function stepSeg(d){ const L = visibleSegs(), i = L.indexOf(view.seg); openSeg(L[(i + d + L.length) % L.length]); }
 function closeViewer(){ $('viewer').classList.add('hidden'); view = null; }
@@ -762,7 +775,7 @@ vc.addEventListener('click', e => {
   const p = imgPoint(e);
   if (tut.on && tut.step === 2){
     const b = CONFIG.calBox; view.zx = b.x + b.w/2; view.zy = b.y + b.h/2; view.zt = 2.6; SFX.click();
-    say(ICHI.tut.zoom, 'happy'); later(() => tutStep(3), 900); return;
+    tut.step = 0; later(() => tutSay([[ICHI.tut.zoom, 'happy'], [ICHI.tut.mark]], () => tutStep(3)), 500); return;
   }
   if (view.zt > 1){ view.zt = 1; } else { view.zx = p.x; view.zy = p.y; view.zt = 2.2; }
   SFX.tick();
@@ -776,6 +789,7 @@ $('btnMark').onclick = () => {
   if (state !== 'find' || !view || view.fx) return;
   const s = view.seg;
   if (s.fake){
+    if (tut.on) tut.step = -1;
     view.fx = {type:'splice', t0:performance.now(), order:shuffle([...Array(Q.low ? 48 : 192).keys()])};
     view.zt = 1; $('btnMark').disabled = true; SFX.scan(); later(SFX.glitch, 300);
     later(() => showStamp(TEXT.stampSplice, 'splice'), 260);
@@ -821,7 +835,7 @@ function toSort(){
   setMsg(TEXT.foundAll, 'ok');
   const rest = R.segs.filter(s => !s.fake);
   renderGrid(R.tut ? rest : shuffle(rest), false);
-  if (tut.on) tutStep(4); else sayFrom('sort');
+  if (tut.on) tutSay([[ICHI.tut.sort]], () => tutStep(4)); else sayFrom('sort');
 }
 function pickSort(s, el){
   if (s.placed) return;
@@ -830,7 +844,7 @@ function pickSort(s, el){
     const b = document.createElement('div'); b.className = 'blk';
     b.style.left = tlPos(s.start); b.style.width = `calc(${tlPos(s.end)} - ${tlPos(s.start)} - 1px)`;
     $('tl').appendChild(b);
-    if (sortNext === sortList.length) later(showGap, 350);
+    if (sortNext === sortList.length){ if (tut.on) tut.step = -1; later(showGap, 350); }
     else if (tut.on) tutStep(4);
   } else {
     SFX.ng(); el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake');
@@ -849,7 +863,7 @@ function showGap(){
   setMsg(TEXT.sorted.replace('{from}', hm(a)).replace('{to}', hm(b)), 'ng');
   $('btnRecover').textContent = `恢复 ${hm(a)}–${hm(b)}`; $('btnRecover').classList.remove('hidden');
   SFX.alarm();
-  if (tut.on) tutStep(5); else sayFrom('gap');
+  if (tut.on) tutSay([[ICHI.tut.gap]], () => tutStep(5)); else sayFrom('gap');
 }
 $('btnRecover').onclick = recover;
 
@@ -907,7 +921,7 @@ function onBuilt(){
 function showPlayBtn(){
   $('pBtns').classList.remove('hidden');
   $('btnPlayNext').textContent = playIdx === playFrames.length-1 ? (R.tut ? '继续' : '结束') : '继续';
-  if (tut.on && R.tut){ say(ICHI.tut.caught, 'happy', 9000); tutStep(6); }
+  if (tut.on && R.tut) tutSay([[ICHI.tut.caught, 'happy']], () => tutStep(6));
 }
 $('btnPlayNext').onclick = () => { SFX.click(); nextFrame(); };
 
@@ -1032,7 +1046,41 @@ function drawViewer(now){
 /* ================================================================
    八、教学（锁定式指引）
    ================================================================ */
-const tut = {on:false, step:0, lineKey:'start'};
+const tut = {on:false, step:0};
+/* 教学对话：逐字打出，点一下打完，再点一下下一句；一组说完才开放这一步的操作 */
+const dlg = {queue:[], text:'', i:0, typing:false, waiting:false, done:null, timer:0, restore:0};
+const dlgG = $('dlgC').getContext('2d');
+function dlgFace(face){ dlgG.clearRect(0,0,256,256); dlgG.drawImage(A('ichiha_'+(face||'normal')), 0, 0, 256, 256); }
+function dlgType(text, face){
+  clearTimeout(dlg.timer); dlg.text = text; dlg.i = 0; dlg.typing = true; dlgFace(face);
+  $('dlgNext').classList.add('hidden');
+  const step = () => {
+    dlg.i++; $('dlgT').textContent = dlg.text.slice(0, dlg.i); if (dlg.i % 3 === 0) SFX.tick();
+    if (dlg.i < dlg.text.length) dlg.timer = setTimeout(step, CONFIG.typeMs);
+    else { dlg.typing = false; if (dlg.waiting) $('dlgNext').classList.remove('hidden'); }
+  };
+  step();
+}
+function tutSay(lines, done){
+  tut.step = 0; spotKey = ''; clearTimeout(dlg.restore);
+  dlg.queue = lines.slice(); dlg.done = done; dlgNextLine();
+}
+function dlgNextLine(){
+  const l = dlg.queue.shift();
+  if (!l){ dlg.waiting = false; $('dlgNext').classList.add('hidden'); const d = dlg.done; dlg.done = null; if (d) d(); return; }
+  dlg.waiting = true; dlgType(l[0], l[1]);
+}
+$('dlg').addEventListener('click', () => {
+  if (dlg.typing){ clearTimeout(dlg.timer); dlg.i = dlg.text.length; $('dlgT').textContent = dlg.text; dlg.typing = false;
+                   if (dlg.waiting) $('dlgNext').classList.remove('hidden'); return; }
+  if (dlg.waiting){ SFX.click(); dlgNextLine(); }
+});
+function dlgWrong(){
+  const box = $('dlg'); box.classList.remove('shake'); void box.offsetWidth; box.classList.add('shake');
+  if (dlg.waiting) return;          // 对话还没看完：只抖一下
+  const keep = dlg.text; dlgType(pick(ICHI.tutWrongClick), 'puzzled'); SFX.ng();
+  clearTimeout(dlg.restore); dlg.restore = setTimeout(() => { if (tut.on && !dlg.waiting) dlgType(keep, 'normal'); }, 1800);
+}
 const spot = $('spot');
 function tutTarget(){
   switch (tut.step){
@@ -1047,63 +1095,66 @@ function tutTarget(){
   return null;
 }
 function tutRect(){
+  if (dlg.waiting) return $('dlg').getBoundingClientRect();
   const t = tutTarget(); if (!t) return null;
   return t.rect || (t.getBoundingClientRect ? t.getBoundingClientRect() : null);
 }
 let spotKey = '';
 function updateSpot(){
-  if (!tut.on || tut.step < 1){ if (spotKey !== 'off'){ spot.classList.add('hidden'); spotKey = 'off'; } return; }
+  const talking = tut.on && dlg.waiting;
+  if (!tut.on || (tut.step < 1 && !talking)){ if (spotKey !== 'off'){ spot.classList.add('hidden'); spotKey = 'off'; } return; }
   const r = tutRect(); if (!r || !r.width){ spot.classList.add('hidden'); spotKey = 'off'; return; }
+  if (!talking){   // 目标在屏幕下方时，对话框移到上方，避免挡住
+    const box = $('dlg'), bh = box.offsetHeight;
+    box.classList.toggle('top', r.top + r.height > innerHeight - bh - 28);
+  }
   const p = 4, key = [r.left, r.top, r.width, r.height].map(Math.round).join(',');
   if (key === spotKey) return; spotKey = key;
   spot.classList.remove('hidden');
   Object.assign(spot.style, {left:(r.left-p)+'px', top:(r.top-p)+'px', width:(r.width+p*2)+'px', height:(r.height+p*2)+'px'});
 }
 function tutStep(n){
-  tut.step = n;
-  const key = {1:'open', 2:'look', 3:'mark', 4:'sort', 5:'gap'}[n];
-  if (key && !(n === 4 && tut.lineKey === 'sort')){ tut.lineKey = key; say(ICHI.tut[key], 'normal', 60000); }
+  tut.step = n; spotKey = '';
   if (n === 4 && sortList[sortNext]){ const el = cardEl(sortList[sortNext].no); el && el.scrollIntoView({block:'nearest'}); }
 }
 // 锁定：教学中只有高亮的目标、“跳过教学”和一羽能点
 addEventListener('click', e => {
-  if (!tut.on || tut.step < 1) return;
-  if (e.target.closest('#btnSkipTut,#ichi')) return;
-  const t = tutTarget(), el = t && (t.el || t);
-  let ok = el && el.contains && el.contains(e.target);
-  if (ok && t.rect){ const r = t.rect; ok = e.clientX >= r.left && e.clientX <= r.left + r.width && e.clientY >= r.top && e.clientY <= r.top + r.height; }
+  if (!tut.on) return;
+  if (e.target.closest('#btnSkipTut,#dlg')) return;
+  let ok = false;
+  if (tut.step >= 1 && !dlg.waiting){
+    const t = tutTarget(), el = t && (t.el || t);
+    ok = !!(el && el.contains && el.contains(e.target));
+    if (ok && t.rect){ const r = t.rect; ok = e.clientX >= r.left && e.clientX <= r.left + r.width && e.clientY >= r.top && e.clientY <= r.top + r.height; }
+  }
   if (ok) return;
   e.stopPropagation(); e.preventDefault();
-  say(pick(ICHI.tutWrongClick), 'puzzled', 2500);
-  setTimeout(() => { if (tut.on && ICHI.tut[tut.lineKey]) say(ICHI.tut[tut.lineKey], 'normal', 60000); }, 2600);
-}, true);
-// 教学进行中：在 boot / recover 等没有目标的时段，也挡住其他点击
-addEventListener('click', e => {
-  if (!tut.on || tut.step >= 1) return;
-  if (e.target.closest('#btnSkipTut,#ichi')) return;
-  e.stopPropagation(); e.preventDefault();
+  if (tut.step !== -1) dlgWrong();
 }, true);
 
 function startTutorial(){
-  tut.on = true; tut.step = 0; tut.lineKey = 'start';
+  tut.on = true; tut.step = -1;
   $('btnSkipTut').classList.remove('hidden'); $('notesList').innerHTML = TEXT.tutNotes.map(n => `<div>· ${esc(n)}</div>`).join('');
-  say(ICHI.open[0], 'happy', 60000);
-  bootRound(buildTutorial(), () => { state = 'find'; setStep('教学 ① 找出伪造片段'); setMsg('检测到拼接痕迹 <b>1</b> 处。'); });
-  later(() => say(ICHI.tut.start, 'normal', 60000), 4200);
-  later(() => tutStep(1), 7000);
+  $('ichi').classList.add('hidden'); $('dlg').classList.remove('hidden'); $('dlg').classList.remove('top');
+  $('dlgT').textContent = ''; dlgFace('normal'); $('dlgNext').classList.add('hidden');
+  bootRound(buildTutorial(), () => {
+    state = 'find'; setStep('教学 ① 找出伪造片段'); setMsg('检测到拼接痕迹 <b>1</b> 处。');
+    tutSay([[ICHI.open[0], 'happy'], [ICHI.tut.start], [ICHI.tut.open]], () => tutStep(1));
+  });
 }
 function tutEnd(){
   tut.on = false; tut.step = 0; spot.classList.add('hidden'); spotKey = 'off';
+  clearTimeout(dlg.timer); clearTimeout(dlg.restore); dlg.queue = []; dlg.waiting = dlg.typing = false; dlg.done = null;
+  $('dlg').classList.add('hidden'); $('ichi').classList.remove('hidden');
   $('btnSkipTut').classList.add('hidden'); closeViewer(); decodes = [];
   if (CONFIG._ds != null){ CONFIG.dayStart = CONFIG._ds; CONFIG.dayEnd = CONFIG._de; CONFIG._ds = null; }
   $('notesList').innerHTML = TEXT.notes.map(n => `<div>· ${esc(n)}</div>`).join('');
   $('tl').classList.remove('zoom');
 }
 function tutFinish(){
-  tutEnd(); say(ICHI.tut.end, 'happy', 4000); state = 'intro';
-  later(startRound, 1200);
+  state = 'intro'; tutSay([[ICHI.tut.end, 'happy']], () => { tutEnd(); startRound(); });
 }
-$('btnSkipTut').onclick = () => { SFX.click(); gen++; tutEnd(); state = 'intro'; say(ICHI.tut.end, 'happy', 3000); startRound(); };
+$('btnSkipTut').onclick = () => { SFX.click(); gen++; tutEnd(); state = 'intro'; startRound(); };
 
 /* ---------- 结果 ---------- */
 function finish(win){
@@ -1177,12 +1228,12 @@ function loop(now){
 addEventListener('resize', () => { if (view) fitViewer(); spotKey = ''; });
 initPlaceholders(); ichiDraw('normal'); renderErr(); refreshIntro();
 $('btnStart').disabled = true; $('btnStart').textContent = '加载中…';
-loadAssets().then(() => { ichiFace = ''; ichiDraw('normal'); $('btnStart').disabled = false; $('btnStart').textContent = '调取录像'; });
+loadAssets().then(() => { ichiFace = ''; ichiDraw('normal'); dlgFace('normal'); $('btnStart').disabled = false; $('btnStart').textContent = '调取录像'; });
 requestAnimationFrame(loop);
 
 // 测试接口
 window.__void = {get R(){return R;}, get state(){return state;}, get lastResult(){return lastResult;}, get tut(){return tut;},
-  get sortList(){return sortList;}, Q, compose, A};
+  get sortList(){return sortList;}, get dlg(){return dlg;}, Q, compose, A};
 }
 </script>
 </body>

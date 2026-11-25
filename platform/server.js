@@ -330,6 +330,30 @@ function serveFile(req, res, file, cache, onServed) {
   });
 }
 
+// 页面里引用的样式和脚本自动带上版本号（?v=...），文件一改版本号就变。
+// 这样浏览器和 Cloudflare 都会去取新文件，不会出现“新页面配旧脚本”导致的空白页。
+let verCache = { t: 0, v: '' };
+function assetVersion() {
+  if (now() - verCache.t < 5000) return verCache.v;
+  let h = 0;
+  try {
+    for (const f of fs.readdirSync(PUBLIC_DIR).sort()) {
+      const st = fs.statSync(path.join(PUBLIC_DIR, f));
+      for (const ch of `${f}:${st.size}:${Math.floor(st.mtimeMs)};`) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0;
+    }
+  } catch {}
+  verCache = { t: now(), v: (h >>> 0).toString(36) };
+  return verCache.v;
+}
+function servePage(req, res, file, cache) {
+  fs.readFile(file, 'utf8', (e, html) => {
+    if (e) return notFound(res);
+    const v = assetVersion();
+    html = html.replace(/(\/static\/[\w.-]+\.(?:js|css))(?=["'])/g, `$1?v=${v}`);
+    send(res, 200, html, 'text/html; charset=utf-8', { 'Cache-Control': cache });
+  });
+}
+
 const PAGES = {
   '/': 'index.html',
   '/register': 'register.html',
@@ -976,10 +1000,10 @@ const server = http.createServer(async (req, res) => {
       if (p === '/kp/setup' && kpUser()) return notFound(res);
       // 控制台页面只发给已登录的 KP，其他人跳到 KP 登录页（页面本身也不能让玩家看到）
       if (p === '/kp' && !currentUser(req, 'kp')) { res.writeHead(302, { Location: '/kp/login', 'Cache-Control': 'no-store' }); return res.end(); }
-      if (p === '/kp') return serveFile(req, res, path.join(PUBLIC_DIR, PAGES[p]), 'private, no-store');
+      if (p === '/kp') return servePage(req, res, path.join(PUBLIC_DIR, PAGES[p]), 'private, no-store');
       // 每个网址只对应一个页面（不按身份换内容），这样任何一层缓存都不会把一个人的页面发给别人。
       // 已审核的仿生人打开 /terminal 时由页面自己转到 /hud，反过来也一样
-      return serveFile(req, res, path.join(PUBLIC_DIR, PAGES[p]), 'no-cache');
+      return servePage(req, res, path.join(PUBLIC_DIR, PAGES[p]), 'no-cache');
     }
 
     // 公共静态资源（样式、脚本、图标）
@@ -987,7 +1011,9 @@ const server = http.createServer(async (req, res) => {
       // 只发样式、脚本、图片；HTML 页面只能从各自的网址打开（控制台页面要先登录 KP）
       if (/\.html?$/i.test(p)) return notFound(res);
       const f = safeJoin(PUBLIC_DIR, p.slice('/static/'.length));
-      return f ? serveFile(req, res, f, 'public, max-age=300') : notFound(res);
+      // 带版本号的可以长期缓存（文件一改网址就变）；不带的每次都问服务器
+      const cache = url.searchParams.has('v') ? 'public, max-age=31536000, immutable' : 'no-cache';
+      return f ? serveFile(req, res, f, cache) : notFound(res);
     }
 
     // 游戏文件：登录且有权限才发送，否则一律 404

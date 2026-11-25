@@ -74,6 +74,14 @@ def run(code):
         for u in ['/static/kp.html', '/static/terminal.html', '/static/index.html']:
             check(status(u) == 404, f'{u} 返回 404')
 
+        page = urllib.request.urlopen(B + '/').read().decode()
+        m = re.search(r'/static/common\.js\?v=([a-z0-9]+)', page)
+        check(bool(m), '页面引用的脚本带版本号')
+        r = urllib.request.urlopen(B + '/static/common.js?v=' + (m.group(1) if m else 'x'))
+        check('immutable' in r.headers.get('Cache-Control', ''), '带版本号的脚本可长期缓存')
+        r = urllib.request.urlopen(B + '/static/common.js')
+        check(r.headers.get('Cache-Control') == 'no-cache', '不带版本号的脚本每次都问服务器')
+
         print('KP 初始化与登录')
         kpc = br.new_context(viewport={'width': 1200, 'height': 900})
         kp = kpc.new_page(); kp.on('pageerror', lambda e: errs.append('kp: ' + str(e)))

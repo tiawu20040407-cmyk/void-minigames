@@ -50,3 +50,13 @@ async function logout(kind = 'player') {
   await api('/api/logout', { kind });
   location.href = kind === 'kp' ? '/kp/login' : '/';
 }
+
+// 页面脚本出错时不要只剩空白：在顶部显示一行提示，玩家可以截图发给 KP
+window.addEventListener('error', e => {
+  if (document.getElementById('void-err')) return;
+  const d = document.createElement('div');
+  d.id = 'void-err';
+  d.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:9999;background:#7a1f24;color:#fff;font:13px/1.5 monospace;padding:8px 12px;white-space:pre-wrap';
+  d.textContent = '页面出错，请刷新（电脑按 Ctrl+F5）。还不行的话把这行截图发给 KP：\n' + (e.message || '') + ' @ ' + String(e.filename || '').split('/').pop() + ':' + (e.lineno || '');
+  (document.body || document.documentElement).appendChild(d);
+});

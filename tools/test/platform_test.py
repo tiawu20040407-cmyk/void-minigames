@@ -68,6 +68,12 @@ def run(code):
         for u in ['/hack/', '/footage/', '/games/hack/', '/games/hack/index.html', '/games/footage/', '/games/hack/../../platform/data/db.json']:
             check(status(u) == 404, f'{u} 返回 404')
 
+        req = urllib.request.Request(B + '/kp')
+        body = urllib.request.urlopen(req).read().decode()
+        check('p-players' not in body and '拘留所' not in body, '未登录打开 /kp 只看到 KP 登录页，看不到控制台页面')
+        for u in ['/static/kp.html', '/static/terminal.html', '/static/index.html']:
+            check(status(u) == 404, f'{u} 返回 404')
+
         print('KP 初始化与登录')
         kpc = br.new_context(viewport={'width': 1200, 'height': 900})
         kp = kpc.new_page(); kp.on('pageerror', lambda e: errs.append('kp: ' + str(e)))

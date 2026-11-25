@@ -77,8 +77,8 @@
     <h2>扫描条目</h2>
     <div class="dim" style="font-size:13px;margin-bottom:10px">仿生人玩家点“扫描”后看到已开放的条目。开放 / 隐藏在上面“玩家”里按人设置，场景预设会一起保存。改了内容，已开放的玩家那边马上更新。</div>
     <div data-keep id="scannew">
-      <label>目标名</label><input id="snt" maxlength="40" placeholder="例如：黑色装甲仿生人（4 台）">
-      <label>数据（一行一条）</label><textarea id="snl" rows="4" maxlength="2000" placeholder="制造编号：无法读取&#10;装甲：2"></textarea>
+      <label>目标名</label><input id="snt" maxlength="40" placeholder="例如：可疑人物 A">
+      <label>数据（一行一条）</label><textarea id="snl" rows="4" maxlength="2000" placeholder="型号：不明&#10;状态：待机"></textarea>
       <div class="row"><button class="primary" id="snadd">新建条目</button></div>
       <div class="msg" id="snm"></div>
     </div>
@@ -113,7 +113,7 @@
     <h2 style="font-size:14px;margin-top:16px">回收站文件</h2>
     <div class="dim" style="font-size:13px">放线索或彩蛋。开放 / 隐藏在上面“玩家”里按人设置（人类玩家卡片里的“回收站·文件名”），场景预设会一起保存。</div>
     <div data-keep id="trnew">
-      <label>文件名</label><input id="trt" maxlength="40" placeholder="例如：会议记录_旧.txt">
+      <label>文件名</label><input id="trt" maxlength="40" placeholder="例如：备忘录.txt">
       <label>内容</label><textarea id="trb" rows="4" maxlength="5000"></textarea>
       <div class="row"><button class="primary" id="tradd">新建文件</button></div>
       <div class="msg" id="trm"></div>
@@ -127,7 +127,7 @@
     <h2>场景预设</h2>
     <div class="dim" style="font-size:13px">先在上面把每个玩家的入口调好，再在这里保存。应用预设会一次性改成保存时的状态。</div>
     <div class="row" data-keep>
-      <input id="pname" placeholder="预设名字，例如 10/25 拘留所" maxlength="30" style="flex:1;min-width:180px">
+      <input id="pname" placeholder="预设名字，例如 场景一" maxlength="30" style="flex:1;min-width:180px">
       <button class="primary" id="psave">保存当前状态为预设</button>
     </div>
     <div class="msg" id="pm"></div>

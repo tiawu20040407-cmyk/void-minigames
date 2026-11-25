@@ -974,6 +974,9 @@ const server = http.createServer(async (req, res) => {
     // 页面
     if (PAGES[p]) {
       if (p === '/kp/setup' && kpUser()) return notFound(res);
+      // 控制台页面只发给已登录的 KP，其他人跳到 KP 登录页（页面本身也不能让玩家看到）
+      if (p === '/kp' && !currentUser(req, 'kp')) { res.writeHead(302, { Location: '/kp/login', 'Cache-Control': 'no-store' }); return res.end(); }
+      if (p === '/kp') return serveFile(req, res, path.join(PUBLIC_DIR, PAGES[p]), 'private, no-store');
       // 每个网址只对应一个页面（不按身份换内容），这样任何一层缓存都不会把一个人的页面发给别人。
       // 已审核的仿生人打开 /terminal 时由页面自己转到 /hud，反过来也一样
       return serveFile(req, res, path.join(PUBLIC_DIR, PAGES[p]), 'no-cache');
@@ -981,6 +984,8 @@ const server = http.createServer(async (req, res) => {
 
     // 公共静态资源（样式、脚本、图标）
     if (p.startsWith('/static/')) {
+      // 只发样式、脚本、图片；HTML 页面只能从各自的网址打开（控制台页面要先登录 KP）
+      if (/\.html?$/i.test(p)) return notFound(res);
       const f = safeJoin(PUBLIC_DIR, p.slice('/static/'.length));
       return f ? serveFile(req, res, f, 'public, max-age=300') : notFound(res);
     }

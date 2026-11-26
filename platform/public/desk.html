@@ -28,12 +28,14 @@
   <button id="startbtn" title="开始"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 6l1.8 4.2 4.4.3-3.4 2.8 1.1 4.3L12 15.3 8.1 17.6l1.1-4.3-3.4-2.8 4.4-.3Z" fill="currentColor"/></svg></button>
   <div id="tasks"></div>
   <div class="tray">
+    <button id="livetray" title="远程监视" hidden><svg viewBox="0 0 24 24"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12Z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg></button>
     <span id="link" title="网络">●</span>
     <span id="clock"><b id="ctime">--:--</b><span id="cdate"></span></span>
   </div>
   <button id="showdesk" title="显示桌面"></button>
 </div>
 
+<div id="livetoast" hidden></div>
 <div id="modal"></div>
 <div id="boot" hidden></div>
 <div id="bsod" hidden></div>

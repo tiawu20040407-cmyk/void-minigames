@@ -59,7 +59,26 @@ function render() {
   $('#smapps').innerHTML = APPS.map(a => `<div class="sma" data-app="${a.id}">${I[a.id]}<span>${esc(a.name)}</span></div>`).join('');
   for (const id of Object.keys(W)) renderWin(id);
   if (!PREVIEW) showNextUnread();
+  renderLive();
 }
+
+// ---------- 远程监视：有人在运行程序、自己在观战名单里时，右下角弹出通知，托盘里留一个图标 ----------
+const liveSeen = new Set();
+function renderLive() {
+  const list = desk.lives || [], tray = $('#livetray'), toast = $('#livetoast');
+  tray.hidden = !list.length;
+  if (!list.length) { toast.hidden = true; return; }
+  const html = '<div class="lh"><span>远程监视</span><button type="button" data-close title="关闭">×</button></div>' +
+    list.map(L => `<div class="li"><span><b>${esc(L.ho)}</b> 正在运行 ${esc(L.gameName)}</span><a href="${esc(L.url)}" target="_blank" rel="noopener">观看</a></div>`).join('');
+  if (toast.innerHTML !== html) toast.innerHTML = html;
+  // 新出现的局才自动弹出；关掉后点托盘图标还能再打开
+  if (list.some(L => !liveSeen.has(L.attempt))) toast.hidden = false;
+  for (const L of list) liveSeen.add(L.attempt);
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('#livetray')) { $('#livetoast').hidden = !$('#livetoast').hidden; return; }
+  if (e.target.closest('#livetoast [data-close]')) $('#livetoast').hidden = true;
+});
 
 // ---------- 窗口 ----------
 const W = {}; // id -> {el, tk, min}

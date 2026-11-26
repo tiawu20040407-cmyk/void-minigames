@@ -60,7 +60,7 @@
   <h1>KP 控制台</h1>
   <div class="sub" id="sub"></div>
   <div class="toc">
-    <a href="#p-players">玩家</a><a href="#p-results">游戏结果</a><a href="#p-vitals">体征</a><a href="#p-scans">扫描条目</a><a href="#p-glitch">界面故障</a><a href="#p-hud">仿生人界面</a><a href="#p-desk">办公电脑</a><a href="#p-presets">场景预设</a><a href="#p-msg">发送消息</a><a href="#p-entries">游戏入口</a>
+    <a href="#p-players">玩家</a><a href="#p-results">游戏结果</a><a href="#p-live">观战</a><a href="#p-vitals">体征</a><a href="#p-scans">扫描条目</a><a href="#p-glitch">界面故障</a><a href="#p-hud">仿生人界面</a><a href="#p-desk">办公电脑</a><a href="#p-presets">场景预设</a><a href="#p-msg">发送消息</a><a href="#p-entries">游戏入口</a>
     <a href="#p-invites">邀请码</a><a href="#p-test">测试账号</a><a href="#p-sys">系统状态</a><a href="#p-log">登录记录</a>
   </div>
 
@@ -77,6 +77,21 @@
     <h2>游戏结果</h2>
     <div class="dim" style="font-size:13px;margin-bottom:10px">玩家从平台打开游戏，每次出结果都会自动传到这里，正式判定的结果到达时有提示音。每人每个游戏默认 1 次正式判定（点“开始”就算用掉），用完后再玩记为练习；在上面玩家卡片里点“再给一次”补一次。</div>
     <div id="results"></div>
+  </div>
+
+  <div class="panel" id="p-live">
+    <h2>观战</h2>
+    <div class="dim" style="font-size:13px;margin-bottom:10px">玩家点“开始”后，名单里的人会在 HUD / 办公电脑上收到通知，可以在新标签页里实时观看（只能看，不能操作，看不到技能值和你的设置），结束时只显示成功或失败。默认谁都不能看；你随时都能看。观众可以发快捷短语，显示在操作者画面角落，操作者可以关掉。</div>
+    <h2 style="font-size:14px;margin-top:4px">正在进行</h2>
+    <div id="lives"></div>
+    <h2 style="font-size:14px;margin-top:16px">观战名单</h2>
+    <div id="spect" data-keep></div>
+    <h2 style="font-size:14px;margin-top:16px">快捷短语</h2>
+    <div data-keep id="cheerbox">
+      <div class="dim" style="font-size:13px;margin-bottom:6px">一行一句，最多 12 句，每句最多 10 个字。</div>
+      <textarea id="cheers" rows="5" style="max-width:320px"></textarea>
+      <div class="row"><button class="small primary" id="cheersave">保存短语</button></div>
+    </div>
   </div>
 
   <div class="panel" id="p-vitals">
@@ -224,7 +239,7 @@ async function load() {
 function render() {
   $('#sub').textContent = `已登录：${S.kpName}`;
   $('#ho').innerHTML = Object.entries(S.hos).map(([k, v]) => `<option value="${k}">${k}（${v.kind}）</option>`).join('');
-  renderUsers(); renderResults(); renderVitals(); renderScans(); renderHud(); renderDesk(); renderPresets(); renderCompose(); renderSent(); renderEntries(); renderInvites(); renderLog();
+  renderUsers(); renderResults(); renderLive(); renderVitals(); renderScans(); renderHud(); renderDesk(); renderPresets(); renderCompose(); renderSent(); renderEntries(); renderInvites(); renderLog();
 }
 
 function sortedUsers() { return S.users.slice().sort((a, b) => (a.test - b.test) || a.ho.localeCompare(b.ho)); }
@@ -465,6 +480,29 @@ function renderResults() {
   }).join('') + '</table>' : '<div class="dim">还没有结果。</div>';
 }
 
+// 观战
+function renderLive() {
+  const byId = Object.fromEntries(S.users.map(u => [u.id, u]));
+  const on = S.lives.filter(L => !L.ended);
+  $('#lives').innerHTML = on.length ? on.map(L => `<div class="row" style="margin:4px 0;gap:10px;align-items:center">
+    <span><b>${esc(L.ho)} ${esc(L.name)}</b> 正在运行 ${esc(L.gameName)} · ${L.watchers} 人在看 · ${fmtTime(L.t)} 开始</span>
+    <a class="btn small" href="${esc(L.url)}" target="_blank" rel="noopener">观看</a></div>`).join('')
+    : '<div class="dim">现在没有人在运行程序。</div>';
+  if (!isDirty('#spect')) {
+    const players = sortedUsers().filter(u => u.status === 'approved');
+    $('#spect').innerHTML = S.entries.length ? S.entries.map(e => {
+      const sp = S.spectate[e.id] || { all: false, uids: [] };
+      return `<div class="gset" data-spe="${esc(e.id)}" style="padding-left:0;border-bottom:1px solid var(--line);padding-bottom:8px;margin-bottom:6px">
+        <b style="color:var(--text);min-width:110px">${esc(e.name)}</b>
+        <label><input type="checkbox" data-spall ${sp.all ? 'checked' : ''}>全员观战</label>
+        ${players.map(u => `<label><input type="checkbox" data-spuid="${u.id}" ${sp.uids.includes(u.id) ? 'checked' : ''}>${esc(u.ho)} ${esc(u.sheet.name)}${u.test ? '（测试）' : ''}</label>`).join('')}
+        ${e.id === 'footage' ? `<label><input type="checkbox" data-sprec ${sp.showRecover ? 'checked' : ''}>观战可见恢复画面</label>` : ''}
+        <button class="small primary" data-spsave="${esc(e.id)}">保存</button></div>`;
+    }).join('') : '<div class="dim">还没有游戏。</div>';
+  }
+  if (!isDirty('#cheerbox')) $('#cheers').value = S.cheers.join('\n');
+}
+
 function renderInvites() {
   const byId = Object.fromEntries(S.users.map(u => [u.id, u]));
   $('#invites').innerHTML = S.invites.length ? '<tr><th>邀请码</th><th>HO</th><th>状态</th><th>生成时间</th><th></th></tr>' + S.invites.map(i => {
@@ -678,6 +716,21 @@ document.addEventListener('click', async e => {
     if (!confirm('删除这条结果？')) return;
     await api('/api/kp/result/delete', { id: b.dataset.rdel });
     return load();
+  }
+  // 观战
+  if (b.dataset.spsave) {
+    const row = b.closest('[data-spe]');
+    const r = await api('/api/kp/spectate', { entry: b.dataset.spsave, all: $('[data-spall]', row).checked,
+      uids: $$('[data-spuid]:checked', row).map(x => Number(x.dataset.spuid)), showRecover: !!($('[data-sprec]', row) || {}).checked });
+    if (!r.ok) return alert(r.error);
+    b.textContent = '已保存'; clean($('#spect')); setTimeout(load, 600);
+    return;
+  }
+  if (b.id === 'cheersave') {
+    const r = await api('/api/kp/cheers', { list: $('#cheers').value.split('\n') });
+    if (!r.ok) return alert(r.error);
+    b.textContent = '已保存'; clean($('#cheerbox')); setTimeout(() => { b.textContent = '保存短语'; load(); }, 600);
+    return;
   }
   // 入口
   if (b.dataset.esave) {

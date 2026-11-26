@@ -127,7 +127,20 @@ async function load() {
 let booted = false, colorKey = '';
 function setText(sel, t) { const el = $(sel); if (!el) return; delete el.dataset.orig; el.textContent = t; }
 
+// 观战通知：有人在运行程序、自己在观战名单里时出现。观看页面在新标签页打开
+function renderLive() {
+  let box = document.getElementById('livebox');
+  const list = (hud && hud.lives) || [];
+  if (!list.length) { if (box) box.remove(); return; }
+  if (!box) { box = document.createElement('div'); box.id = 'livebox'; document.body.appendChild(box); }
+  const OLDL = me && me.ho === 'HO4';
+  const html = list.map(L => `<div class="liveitem" data-a="${esc(L.attempt)}"><span class="ld"></span>` +
+    `<span class="lt">${OLDL ? '&gt; LINK ' : ''}数据链路：接入中 · <b>${esc(L.ho)}</b> 正在运行 ${esc(L.gameName)}</span>` +
+    `<a href="${esc(L.url)}" target="_blank" rel="noopener">${OLDL ? '[观看]' : '观看'}</a></div>`).join('');
+  if (box.innerHTML !== html) box.innerHTML = html;
+}
 function render() {
+  renderLive();
   // 颜色或布局变了：重画用到颜色的静态部分（主视野框架、背景、心形）
   const key = built + hud.color;
   if (key !== colorKey) {

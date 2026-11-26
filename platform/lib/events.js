@@ -44,8 +44,43 @@ function drop(uid) {
   onPresence();
 }
 
+// 频道：观战用。和上面的用户连接分开，不算在线状态，只收这一局的画面或短语。
+const chans = new Map(); // key -> Set(res)
+function addChan(key, req, res, onChange) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'private, no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.write('retry: 3000\n\n');
+  let set = chans.get(key);
+  if (!set) chans.set(key, set = new Set());
+  set.add(res);
+  if (onChange) onChange();
+  req.on('close', () => {
+    set.delete(res);
+    if (!set.size) chans.delete(key);
+    if (onChange) onChange();
+  });
+}
+function sendChan(key, type, data = {}) {
+  const set = chans.get(key);
+  if (!set) return;
+  const msg = `event: ${type}\ndata: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`;
+  for (const res of set) res.write(msg);
+}
+function chanCount(key) { const set = chans.get(key); return set ? set.size : 0; }
+function closeChan(key) {
+  const set = chans.get(key);
+  if (!set) return;
+  for (const res of set) res.end();
+  chans.delete(key);
+}
+
 setInterval(() => {
   for (const set of clients.values()) for (const res of set) res.write(': ping\n\n');
+  for (const set of chans.values()) for (const res of set) res.write(': ping\n\n');
 }, 25000).unref();
 
-module.exports = { add, send, sendMany, online, drop, setPresenceHandler: fn => { onPresence = fn; } };
+module.exports = { add, send, sendMany, online, drop, addChan, sendChan, chanCount, closeChan, setPresenceHandler: fn => { onPresence = fn; } };

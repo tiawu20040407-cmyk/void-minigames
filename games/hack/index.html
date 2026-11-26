@@ -1020,7 +1020,7 @@ function finish(win){
     $('rLine').classList.add('hidden'); $('btnCopy').classList.add('hidden'); $('btnRetry').textContent = '返回';
     lastResult = null; bgm('');
     $('voidUp').style.display = 'none';
-    if (VB) $('btnRetry').textContent = '返回';
+    if (VB){ $('btnRetry').textContent = '返回'; VB.live.end(win); }
     setTimeout(() => $('result').classList.remove('hidden'), 700);
     return;
   }
@@ -1033,7 +1033,7 @@ function finish(win){
   // 回传给 KP 的结果对象（联机阶段经服务器发送）
   lastResult = {game:'hack-detention', stage:stageId, difficulty:CONFIG.difficulty, operator, skill, grade,
                 hpLeft:pl.hp, hpMax:P.playerHP, time:+used.toFixed(1), progress:+progress.toFixed(2), enemyHPCut:cut};
-  if (VB){ VB.report(Object.assign({}, lastResult, {official: VB.official})); $('btnRetry').textContent = '返回'; }
+  if (VB){ VB.report(Object.assign({}, lastResult, {official: VB.official})); VB.live.end(win); $('btnRetry').textContent = '返回'; }
   const gName = {perfect:TEXT.gradePerfect, win:TEXT.gradeWin, lose:TEXT.gradeLose}[grade];
   $('rGrade').textContent = gName; $('rGrade').className = 'grade ' + (win ? 'win' : 'lose');
   $('rText').innerHTML = win
@@ -1117,11 +1117,13 @@ $('btnCopy').onclick = () => {
    九、主循环 + 自动画质：连续 1.5 秒平均帧耗时超过 26ms 就切到简化特效
    ================================================================ */
 const perf = {ema:1/60, t:0};
-let last = performance.now();
+let last = performance.now(), liveT = 0;
 function loop(now){
   const raw = (now - last)/1000, dt = Math.min(0.05, raw); last = now;
+  if (state === 'watch'){ watchTick(dt); if (G) renderTimer(); }
   if (state === 'play'){
     update(dt); renderTimer();
+    if (VB && VB.live.on && now - liveT > 110){ liveT = now; VB.live.frame(liveSnap()); }
     perf.ema = perf.ema*0.95 + raw*0.05;
     if (!Q.low && perf.ema > 0.026){ if ((perf.t += raw) > 1.5) setLow(true, true); } else perf.t = 0;
   }
@@ -1154,9 +1156,65 @@ if (VB){
   label(); VB.onStatus(label); refreshIntro();
 }
 
+/* ---------- 观战（第 3d 步）：操作者每秒发约 9 份画面数据，观众用同一个 draw() 画，中间按速度外推 ---------- */
+const r2 = v => Math.round(v*100)/100;
+function round2(o){
+  if (typeof o === 'number') return r2(o);
+  if (Array.isArray(o)) return o.map(round2);
+  if (o && typeof o === 'object'){ const out = {}; for (const k in o) out[k] = round2(o[k]); return out; }
+  return o;
+}
+function liveSnap(){
+  const R = Math.round, B = [], S = [], Pa = [];
+  for (let i=0;i<BUL.n;i++){ const b = BUL.a[i]; B.push(R(b.x), R(b.y), R(b.vx), R(b.vy), b.r, b.hard?1:0); }
+  for (let i=0;i<SHOT.n;i++){ const b = SHOT.a[i]; S.push(R(b.x), R(b.y), R(b.vx), R(b.vy)); }
+  for (let i=0;i<Math.min(PART.n, 160);i++){ const b = PART.a[i]; Pa.push(R(b.x), R(b.y), R(b.vx), R(b.vy), R(b.life*100), b.c); }
+  const pl = G.player;
+  return {t:r2(G.t), tl:r2(G.timeLeft), boot:r2(G.boot), fw:G.fwAlive, end:r2(G.ending), ew:G.endWin, sh:r2(G.shake), hpMax:P.playerHP,
+    pl:{x:r2(pl.x), y:r2(pl.y), hp:pl.hp, inv:r2(pl.inv), aim:r2(pl.aim), muzzle:r2(pl.muzzle)},
+    en:round2(G.enemies), rings:round2(G.rings), texts:round2(G.texts), fx:round2(G.fx), B, S, Pa};
+}
+let watchPl = null;
+function watchApply(d){
+  if (!G) G = {player:Object.assign({fire:0}, d.pl), enemies:[], rings:[], texts:[], fx:{flash:0,red:0,slow:0,glitch:0}};
+  const hpChanged = !P || P.playerHP !== d.hpMax || G.player.hp !== d.pl.hp;
+  P = P || {}; P.playerHP = d.hpMax;
+  Object.assign(G, {t:d.t, timeLeft:d.tl, boot:d.boot, fwAlive:d.fw, ending:d.end, endWin:d.ew, shake:d.sh, enemies:d.en, rings:d.rings, texts:d.texts, fx:d.fx});
+  watchPl = d.pl;
+  G.player.hp = d.pl.hp; G.player.inv = d.pl.inv; G.player.aim = d.pl.aim; G.player.muzzle = d.pl.muzzle;
+  BUL.n = 0; for (let i=0;i<d.B.length;i+=6){ const b = BUL.take(); if (!b) break; b.x=d.B[i]; b.y=d.B[i+1]; b.vx=d.B[i+2]; b.vy=d.B[i+3]; b.r=d.B[i+4]; b.hard=!!d.B[i+5]; }
+  SHOT.n = 0; for (let i=0;i<d.S.length;i+=4){ const b = SHOT.take(); if (!b) break; b.x=d.S[i]; b.y=d.S[i+1]; b.vx=d.S[i+2]; b.vy=d.S[i+3]; }
+  PART.n = 0; for (let i=0;i<d.Pa.length;i+=6){ const b = PART.take(); if (!b) break; b.x=d.Pa[i]; b.y=d.Pa[i+1]; b.vx=d.Pa[i+2]; b.vy=d.Pa[i+3]; b.life=d.Pa[i+4]/100; b.c=d.Pa[i+5]; }
+  if (hpChanged) renderHP();
+}
+function watchTick(dt){
+  if (!G) return;
+  const slow = G.fx.slow > 0 ? 0.18 : 1, gd = dt*slow;
+  G.t += gd;
+  if (G.boot > 0) G.boot -= gd; else if (G.ending <= 0) G.timeLeft = Math.max(0, G.timeLeft - gd);
+  for (const k of ['flash','red','slow','glitch']) G.fx[k] = Math.max(0, G.fx[k] - dt);
+  G.shake = Math.max(0, G.shake - dt*2);
+  for (let i=0;i<BUL.n;i++){ const b = BUL.a[i]; b.x += b.vx*gd; b.y += b.vy*gd; }
+  for (let i=0;i<SHOT.n;i++){ const b = SHOT.a[i]; b.x += b.vx*gd; b.y += b.vy*gd; }
+  for (let i=PART.n-1;i>=0;i--){ const p = PART.a[i]; p.x += p.vx*gd; p.y += p.vy*gd; p.life -= dt; if (p.life <= 0) PART.kill(i); }
+  for (const r of G.rings) r.t += gd;
+  G.rings = G.rings.filter(r => r.t < r.life);
+  for (const t of G.texts) t.life -= dt;
+  G.texts = G.texts.filter(t => t.life > 0);
+  if (watchPl){ const k = Math.min(1, dt*14), pl = G.player; pl.x += (watchPl.x - pl.x)*k; pl.y += (watchPl.y - pl.y)*k; }
+  if (G.player.inv > 0) G.player.inv = Math.max(0, G.player.inv - gd);
+}
+if (window.VOIDB && window.VOIDB.watching){
+  state = 'watch';
+  $('intro').classList.add('hidden'); $('result').classList.add('hidden'); $('btnEndPr').classList.add('hidden');
+  window.VOIDB.onFrame(watchApply);
+  window.VOIDB.onEnd(() => { state = 'watchend'; });   // 停在最后一帧
+  resize();
+}
+
 // 测试接口
 window.__void = {get G(){return G;}, get state(){return state;}, set state(v){state=v;}, get lastResult(){return lastResult;},
-  BUL, SND, newGame, update, hurt, setSkill:v=>skill=v, setStage:v=>stageChoice=v, setDiff:v=>CONFIG.difficulty=v, draw, finish};
+  BUL, SND, newGame, update, hurt, liveSnap, watchApply, setSkill:v=>skill=v, setStage:v=>stageChoice=v, setDiff:v=>CONFIG.difficulty=v, draw, finish};
 }
 </script>
 </body>

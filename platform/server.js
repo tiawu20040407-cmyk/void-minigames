@@ -69,6 +69,11 @@ const GAME_DEFS = {
   },
 };
 const ATTEMPT_TTL = 12 * 3600 * 1000; // 开始一局后多久内还能上传结果
+// 第 3d 步：观战
+const DEFAULT_CHEERS = ['左边！', '右边！', '小心！', '加油', '稳住', '快到了', '好厉害', '？？？'];
+const LIVE_STALE = 60 * 1000;      // 这么久没收到操作者的画面或心跳，就当这一局断了
+const LIVE_KEEP = 10 * 60 * 1000;  // 结束后在内存里留多久（中途进来的人还能看到“本局结束”）
+const CHEER_GAP = 2000;            // 每个观众两次短语之间至少隔多久
 
 // ---------- 启动 ----------
 const db = DB.load();
@@ -85,6 +90,9 @@ db.gameSettings = db.gameSettings || {}; // {entryId: {key: value}}
 db.plays = db.plays || {};               // {uid: {entryId: {used, extra}}}，正式局次数 = 1 + extra
 db.attempts = db.attempts || {};         // {attemptId: {uid, entry, official, t}}
 db.results = db.results || [];           // {id, rid, uid, entry, official, attempt, result, t, test}
+// 第 3d 步：每个游戏谁能观战（默认没人），快捷短语
+db.spectate = db.spectate || {};         // {entryId: {all, uids: [], showRecover}}
+if (!Array.isArray(db.cheers) || !db.cheers.length) db.cheers = DEFAULT_CHEERS.slice();
 for (const u of db.users) if (u.role === 'player') fillHudDefaults(u);
 E.sync(db, GAMES_DIR);
 DB.save();
@@ -92,6 +100,9 @@ DB.save();
 setInterval(() => { if (E.sync(db, GAMES_DIR)) { DB.save(); notifyKp(); } }, 60 * 1000).unref();
 
 const gameOpened = new Map(); // `${uid}:${entryId}` -> 最近一次打开游戏页面的时间
+// 正在进行的局（只在内存里，重启就没了）：attempt -> {id, uid, entry, t, last, frame, init, ended, grade, mute}
+const lives = new Map();
+const cheerAt = new Map();    // uid -> 上次发短语的时间
 
 let setupCode = null;
 function kpUser() { return db.users.find(u => u.role === 'kp'); }
@@ -136,6 +147,7 @@ function gameSession(user, entry) {
   return Object.assign({
     role: 'player', game: entry.id, ho: user.ho, name: user.sheet.name, test: !!user.test,
     skill: def ? Number(user.sheet[def.skill]) || 0 : null, settings: gameSettings(entry.id),
+    spectate: { showRecover: spectateOf(entry.id).showRecover }, // 录像排序：要不要把恢复画面发给观众
   }, playInfo(user.id, entry.id));
 }
 function serveGamePage(req, res, file, session) {
@@ -177,6 +189,63 @@ function notifyHud(what = 'hud') {
   notifyKp();
 }
 function scanKey(id) { return 'scan:' + id; }
+
+// ----- 观战 -----
+function spectateOf(entryId) {
+  const s = db.spectate[entryId] || {};
+  return { all: !!s.all, uids: Array.isArray(s.uids) ? s.uids : [], showRecover: !!s.showRecover };
+}
+// KP 永远能看；玩家要在这个游戏的观战名单里，不能看自己，测试账号只看测试账号
+function canWatch(user, L) {
+  if (!user || !L) return false;
+  if (user.role === 'kp') return true;
+  if (user.role !== 'player' || user.status !== 'approved' || user.id === L.uid) return false;
+  const op = db.users.find(u => u.id === L.uid);
+  if (!op || !!op.test !== !!user.test) return false;
+  const sp = spectateOf(L.entry);
+  return sp.all || sp.uids.includes(user.id);
+}
+function liveWatchers(L) { return db.users.filter(u => u.role === 'player' && canWatch(u, L)); }
+function notifyLive(L) {
+  for (const u of liveWatchers(L)) EV.send(u.id, 'refresh', { what: 'live' });
+  notifyKp('live');
+}
+function liveInfo(L) {
+  const op = db.users.find(u => u.id === L.uid), e = entryList().find(x => x.id === L.entry);
+  return {
+    attempt: L.id, game: L.entry, gameName: e ? e.name : L.entry, ho: op ? op.ho : '', name: op ? op.sheet.name : '',
+    url: e ? `/games/${e.dir}/?watch=${encodeURIComponent(L.id)}` : '', t: L.t,
+    watchers: EV.chanCount('watch:' + L.id), ended: L.ended, grade: L.grade,
+  };
+}
+// 某个人现在能看的局（未结束的）
+function livesFor(user) {
+  return [...lives.values()].filter(L => !L.ended && canWatch(user, L)).map(liveInfo);
+}
+function endLive(L, grade) {
+  if (L.ended) return;
+  L.ended = true; L.grade = grade; L.endedAt = now();
+  const msg = JSON.stringify({ grade });
+  EV.sendChan('watch:' + L.id, 'end', msg); EV.sendChan('watchkp:' + L.id, 'end', msg);
+  notifyLive(L);
+}
+setInterval(() => {
+  for (const L of lives.values()) {
+    if (!L.ended && now() - L.last > LIVE_STALE) endLive(L, null);
+    if (L.ended && now() - L.endedAt > LIVE_KEEP) {
+      lives.delete(L.id);
+      for (const k of ['watch:', 'watchkp:', 'play:']) EV.closeChan(k + L.id);
+    }
+  }
+}, 5000).unref();
+function watchSession(user, L) {
+  const op = db.users.find(u => u.id === L.uid);
+  return {
+    role: 'watch', game: L.entry, attempt: L.id, me: user.role === 'kp' ? 'KP' : user.ho,
+    operator: { ho: op ? op.ho : '', name: op ? op.sheet.name : '' },
+    cheers: db.cheers, showRecover: spectateOf(L.entry).showRecover,
+  };
+}
 
 function clientIp(req) {
   return String(req.headers['cf-connecting-ip'] || req.headers['x-real-ip'] ||
@@ -550,7 +619,7 @@ route('GET', '/api/hud', (req, res, body, url) => {
   const partner = p ? { connected: true, name: p.sheet.name, ho: p.ho, tier: injuryTier(p), vitals: p.vitals } : { connected: false, ho: PARTNER[u.ho] };
   const scans = db.scans.filter(s => entryState(u.id, scanKey(s.id)) === 'open')
     .map(s => ({ id: s.id, title: s.title, lines: s.lines, updatedAt: s.updatedAt }));
-  ok(res, { ok: true, model: u.model, color: u.ho === 'HO2' ? 'cyan' : u.hudColor, partner, scans, ambient: db.hudAmbient });
+  ok(res, { ok: true, model: u.model, color: u.ho === 'HO2' ? 'cyan' : u.hudColor, partner, scans, ambient: db.hudAmbient, lives: livesFor(u) });
 });
 
 // 人类办公电脑的数据：系统名、已开放的回收站文件、本人记事本
@@ -560,7 +629,7 @@ route('GET', '/api/desk', (req, res, body, url) => {
   const u = v.user;
   const trash = db.trash.filter(t => entryState(u.id, trashKey(t.id)) === 'open')
     .map(t => ({ id: t.id, title: t.title, body: t.body, updatedAt: t.updatedAt }));
-  ok(res, { ok: true, name: db.deskName, trash, notes: u.notes || '', notesAt: u.notesAt || null });
+  ok(res, { ok: true, name: db.deskName, trash, notes: u.notes || '', notesAt: u.notesAt || null, lives: livesFor(u) });
 });
 
 // 记事本：玩家自己写，KP 可看
@@ -604,6 +673,11 @@ route('POST', '/api/game/start', async (req, res, body) => {
   db.attempts[id] = { uid, entry: eid, official: info.official, t: now() };
   for (const [k, a] of Object.entries(db.attempts)) if (now() - a.t > ATTEMPT_TTL) delete db.attempts[k];
   DB.save();
+  // 同一个人之前没结束的局算断了
+  for (const L of lives.values()) if (L.uid === uid && !L.ended) endLive(L, null);
+  const L = { id, uid, entry: eid, t: now(), last: now(), frame: null, init: null, ended: false, grade: null, mute: false };
+  lives.set(id, L);
+  notifyLive(L);
   notifyKp('plays');
   ok(res, Object.assign({ ok: true, attempt: id }, info, playInfo(uid, eid), { official: info.official }));
 });
@@ -623,6 +697,82 @@ route('POST', '/api/game/result', async (req, res, body) => {
   DB.save();
   notifyKp(a.official ? 'result-official' : 'result');
   ok(res);
+});
+
+// ----- 观战 -----
+// 观战的身份：先看 KP 登录，再看玩家（和游戏页面一致）
+function watcherOf(req) {
+  const cu = currentUser(req, 'kp') || currentUser(req, 'player');
+  return cu ? cu.user : null;
+}
+function chanEvent(type, str) { return `event: ${type}\ndata: ${str}\n\n`; }
+// 操作者发画面：kind = init（这一轮的素材）/ frame（当前状态）/ beat（心跳）/ end（结束，data.win）
+route('POST', '/api/live/frame', async (req, res, body) => {
+  const cu = currentUser(req, 'player');
+  const L = lives.get(String(body.attempt || ''));
+  if (!cu || !L || L.uid !== cu.user.id) return err(res, 404, '没有这一局');
+  if (L.ended) return ok(res, { ok: true, ended: true });
+  const kind = String(body.kind || '');
+  if (!['init', 'frame', 'beat', 'end'].includes(kind)) return err(res, 400, 'kind 不正确');
+  L.last = now();
+  if (kind === 'beat') return ok(res, { ok: true, watchers: EV.chanCount('watch:' + L.id) });
+  if (kind === 'end') { endLive(L, body.data && body.data.win ? 'win' : 'lose'); return ok(res); }
+  const str = JSON.stringify(body.data === undefined ? null : body.data);
+  if (str.length > 60000) return err(res, 400, '画面太大');
+  if (kind === 'init') { L.init = str; L.frame = null; } else L.frame = str;
+  EV.sendChan('watch:' + L.id, kind, str); EV.sendChan('watchkp:' + L.id, kind, str);
+  ok(res, { ok: true, watchers: EV.chanCount('watch:' + L.id) });
+});
+// as=play：操作者收短语和观众人数；as=watch：观众收画面
+route('GET', '/api/live/stream', (req, res, body, url) => {
+  const L = lives.get(String(url.searchParams.get('attempt') || ''));
+  if (url.searchParams.get('as') === 'play') {
+    const cu = currentUser(req, 'player');
+    if (!cu || !L || L.uid !== cu.user.id) return err(res, 404, '没有这一局');
+    EV.addChan('play:' + L.id, req, res);
+    res.write(chanEvent('watchers', JSON.stringify({ n: EV.chanCount('watch:' + L.id) })));
+    return;
+  }
+  const user = watcherOf(req);
+  if (!L || !canWatch(user, L)) return err(res, 404, '没有这一局');
+  // KP 单独一个频道，不算在操作者看到的观众人数里
+  const key = (user.role === 'kp' ? 'watchkp:' : 'watch:') + L.id;
+  const count = () => { EV.sendChan('play:' + L.id, 'watchers', { n: EV.chanCount('watch:' + L.id) }); notifyKp('live'); };
+  EV.addChan(key, req, res, user.role === 'kp' ? null : count);
+  if (L.init) res.write(chanEvent('init', L.init));
+  if (L.frame) res.write(chanEvent('frame', L.frame));
+  if (L.mute) res.write(chanEvent('mute', JSON.stringify({ mute: true })));
+  if (L.ended) res.write(chanEvent('end', JSON.stringify({ grade: L.grade })));
+});
+// 观众发快捷短语：只能从 KP 定的短语里选，每人每 2 秒一次
+route('POST', '/api/live/cheer', async (req, res, body) => {
+  const user = watcherOf(req);
+  const L = lives.get(String(body.attempt || ''));
+  if (!L || !canWatch(user, L)) return err(res, 404, '没有这一局');
+  if (L.ended) return err(res, 400, '这一局已经结束');
+  const text = db.cheers[Number(body.i)];
+  if (typeof text !== 'string') return err(res, 400, '没有这句');
+  const last = cheerAt.get(user.id) || 0;
+  if (now() - last < CHEER_GAP) return err(res, 429, '慢一点');
+  cheerAt.set(user.id, now());
+  if (L.mute) return ok(res, { ok: true, muted: true });
+  EV.sendChan('play:' + L.id, 'cheer', { from: user.role === 'kp' ? 'KP' : user.ho, text });
+  ok(res);
+});
+// 操作者关掉 / 打开观战提示
+route('POST', '/api/live/mute', async (req, res, body) => {
+  const cu = currentUser(req, 'player');
+  const L = lives.get(String(body.attempt || ''));
+  if (!cu || !L || L.uid !== cu.user.id) return err(res, 404, '没有这一局');
+  L.mute = !!body.mute;
+  const msg = JSON.stringify({ mute: L.mute });
+  EV.sendChan('watch:' + L.id, 'mute', msg); EV.sendChan('watchkp:' + L.id, 'mute', msg);
+  ok(res);
+});
+route('GET', '/api/live', (req, res, body, url) => {
+  const cu = currentUser(req, url.searchParams.get('kp') ? 'kp' : 'player');
+  if (!cu) return err(res, 401, '请先登录');
+  ok(res, { ok: true, lives: livesFor(cu.user) });
 });
 
 // ----- KP -----
@@ -688,6 +838,9 @@ route('GET', '/api/kp/state', (req, res) => {
     gameSettings: Object.fromEntries(Object.keys(GAME_DEFS).map(k => [k, gameSettings(k)])),
     plays: Object.fromEntries(db.users.filter(u => u.role === 'player').map(u => [u.id, Object.fromEntries(entryList().map(e => [e.id, playInfo(u.id, e.id)]))])),
     results: db.results.slice(-300).reverse(),
+    spectate: Object.fromEntries(entryList().map(e => [e.id, spectateOf(e.id)])),
+    cheers: db.cheers,
+    lives: [...lives.values()].map(liveInfo).reverse(),
     presets: db.presets.map(p => ({ id: p.id, name: p.name, updatedAt: p.updatedAt })),
     messages: db.messages.slice().reverse(),
     invites: db.invites.slice().reverse(),
@@ -1094,6 +1247,31 @@ route('POST', '/api/kp/result/delete', async (req, res, body) => {
   ok(res);
 });
 
+// 观战名单：all 全员，uids 指定玩家；showRecover 观众能否看到录像排序的恢复画面
+route('POST', '/api/kp/spectate', async (req, res, body) => {
+  if (!requireKp(req, res)) return;
+  const e = entryList().find(x => x.id === body.entry);
+  if (!e) return err(res, 404, '没有这个游戏');
+  const uids = (Array.isArray(body.uids) ? body.uids : []).map(Number).filter(id => findPlayer(id));
+  db.spectate[e.id] = { all: !!body.all, uids: [...new Set(uids)], showRecover: !!body.showRecover };
+  DB.save();
+  for (const L of lives.values()) if (L.entry === e.id && !L.ended) notifyLive(L);
+  for (const u of db.users) if (u.role === 'player') EV.send(u.id, 'refresh', { what: 'live' });
+  notifyKp();
+  ok(res);
+});
+route('POST', '/api/kp/cheers', async (req, res, body) => {
+  if (!requireKp(req, res)) return;
+  const list = (Array.isArray(body.list) ? body.list : []).map(x => String(x).trim()).filter(Boolean);
+  if (!list.length) return err(res, 400, '至少留一句');
+  if (list.length > 12) return err(res, 400, '最多 12 句');
+  if (list.some(x => x.length > 10)) return err(res, 400, '每句最多 10 个字');
+  db.cheers = list;
+  DB.save();
+  notifyKp();
+  ok(res);
+});
+
 // 界面故障：只推送，不保存
 route('POST', '/api/kp/glitch', async (req, res, body) => {
   if (!requireKp(req, res)) return;
@@ -1193,6 +1371,15 @@ const server = http.createServer(async (req, res) => {
       const user = cu && cu.user;
       const rel = !m[2] || m[2] === '/' ? 'index.html' : m[2].slice(1);
       const isPage = rel.endsWith('.html');
+      // 观战：同一个游戏页面，以观战模式打开。不需要自己的入口是开放的，只要在观战名单里
+      const watchId = url.searchParams.get('watch');
+      if (watchId && m[2] === '/') {
+        const L = lives.get(watchId);
+        if (!L || L.entry !== entry.id || !canWatch(user, L)) return notFound(res);
+        if (user.role === 'player') gameOpened.set(`${user.id}:${entry.id}`, now()); // 让素材能加载
+        const f = safeJoin(path.join(GAMES_DIR, entry.dir), 'index.html');
+        return f ? serveGamePage(req, res, f, watchSession(user, L)) : notFound(res);
+      }
       if (isPage ? !canOpen(user, entry) : !canLoadAsset(user, entry)) return notFound(res);
       if (!m[2]) { res.writeHead(301, { Location: `/games/${m[1]}/` }); return res.end(); }
       const f = safeJoin(path.join(GAMES_DIR, entry.dir), rel);

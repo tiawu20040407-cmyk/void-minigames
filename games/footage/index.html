@@ -122,6 +122,11 @@ button:disabled{opacity:.35;cursor:default}
 #dlgNext{font-size:11px;color:var(--dim);text-align:right;animation:spot 1s steps(2) infinite}
 @media (max-width:480px){ #dlgC{width:64px;height:64px} #dlgT{font-size:13px} #ichiC{width:80px;height:80px} }
 .hidden{display:none!important}
+/* 观战：只能看 */
+body.void-watch #app, body.void-watch #viewer, body.void-watch #result, body.void-watch #ichi, body.void-watch #dlg{pointer-events:none}
+body.void-watch #vBtns, body.void-watch #pBtns, body.void-watch #btnRecover, body.void-watch #btnSkipTut, body.void-watch #result .row{display:none!important}
+body.void-watch #app{padding-bottom:84px;box-sizing:border-box}
+body.void-watch #ichi{transform:translateY(-78px)}
 </style>
 </head>
 <body>
@@ -986,6 +991,7 @@ function drawHex(W, H, now, p){
 }
 function drawViewer(now){
   if (!view) return;
+  if (WATCH && view.mode === 'play'){ watchDrawPlay(now); return; }
   const W = vc.width, H = vc.height;
   view.zs += (view.zt - view.zs) * 0.18; if (Math.abs(view.zt - view.zs) < 0.002) view.zs = view.zt;
   vc.style.cursor = view.zs > 1.01 ? 'zoom-out' : 'zoom-in';
@@ -1185,7 +1191,7 @@ function finish(win){
   const gName = {perfect:TEXT.gradePerfect, win:TEXT.gradeWin, lose:TEXT.gradeLose}[grade];
   lastResult = {game:'footage-sort', operator, skill, segments:R.segs.length, fakes:R.fakes, clues:R.clues, grade,
                 errors, attempt, hintUsed, time:+used.toFixed(1), final:!canRetry};
-  if (VB) VB.report(Object.assign({}, lastResult, {official: VB.official}));
+  if (VB){ VB.report(Object.assign({}, lastResult, {official: VB.official})); liveTick(true); if (!canRetry) VB.live.end(win); }
   $('rGrade').textContent = gName; $('rGrade').className = 'grade ' + (win ? 'win' : 'lose');
   $('rText').innerHTML = win ? TEXT.winText + (perfect ? '<br><span class="muted">' + TEXT.perfectExtra + '</span>' : '') : TEXT.loseText;
   $('rStats').textContent = `${R.segs.length} 段（伪造 ${R.fakes}）· 错误 ${errors}/${CONFIG.maxErrors} · 第 ${attempt} 次尝试` +
@@ -1244,11 +1250,12 @@ $('btnNotes').onclick = () => { SFX.click(); $('notes').classList.remove('hidden
 $('btnNotesClose').onclick = () => { SFX.click(); $('notes').classList.add('hidden'); };
 
 /* ---------- 主循环 + 自动画质：特效期间平均帧耗时超过 30ms 持续 1 秒就切到简化特效 ---------- */
-let last = performance.now();
+let last = performance.now(), liveT = 0;
 function loop(now){
   const raw = (now - last)/1000; last = now;
   const busy = view || decodes.length;
   drawViewer(now); stepDecodes(now); updateSpot();
+  if (VB && VB.live.on && now - liveT > 200){ liveT = now; liveTick(); }
   if (busy && !Q.low){
     Q.ema = Q.ema*0.95 + raw*0.05;
     if (Q.ema > 0.030){ if ((Q.t += raw) > 1) Q.low = true; } else Q.t = 0;
@@ -1258,7 +1265,7 @@ function loop(now){
 addEventListener('resize', () => { if (view) fitViewer(); spotKey = ''; });
 initPlaceholders(); ichiDraw('normal'); renderErr(); refreshIntro();
 $('btnStart').disabled = true; $('btnStart').textContent = '加载中…';
-loadAssets().then(() => { ichiFace = ''; ichiDraw('normal'); dlgFace('normal'); $('btnStart').disabled = false; $('btnStart').textContent = '调取录像'; if (voidLabel) voidLabel(); });
+const assetsReady = loadAssets().then(() => { ichiFace = ''; ichiDraw('normal'); dlgFace('normal'); $('btnStart').disabled = false; $('btnStart').textContent = '调取录像'; if (voidLabel) voidLabel(); });
 requestAnimationFrame(loop);
 
 /* ---------- 平台对接：从平台打开时，技能值和 KP 的设置由平台给，结果自动上传给 KP ---------- */
@@ -1286,9 +1293,129 @@ if (VB){
   voidLabel = label; label(); VB.onStatus(label); refreshIntro();
 }
 
+/* ---------- 观战（第 3d 步）：操作者有变化就发当前状态，观众用同样的素材在本地画 ---------- */
+// 发给观众的片段不带 fake / clue（谁是伪造的只有画面本身能看出来）
+let liveR = null, liveLast = '';
+function liveTick(force){
+  if (!R) return;
+  if (R !== liveR){
+    liveR = R; liveLast = '';
+    VB.live.init({tut:R.tut, segs:R.segs.map(x => ({no:x.no, scene:x.scene, weather:x.weather, light:x.light, items:x.items, time:x.time, sec:x.sec, cal:x.cal, start:x.start, end:x.end}))});
+  }
+  const showRec = !!(VB.session.spectate && VB.session.spectate.showRecover), vis = id => !$(id).classList.contains('hidden');
+  let v = null;
+  if (view && vis('viewer')){
+    v = {m:view.mode, no:view.mode === 'seg' && view.seg ? view.seg.no : 0, zt:view.zt, zx:Math.round(view.zx), zy:Math.round(view.zy),
+         fx:view.fx ? view.fx.type : '', fxT:view.fx ? Math.round(view.fx.t0) : 0, ph:view.phase || '', pi:playIdx, info:$('vInfo').innerHTML,
+         stamp:vis('stamp') ? [$('stamp').className, $('stamp').innerHTML] : null};
+    if (view.mode === 'play'){
+      v.hexDur = view.hexDur;
+      if (showRec){ v.cap = $('vCap').innerHTML; const f = playFrames[playIdx]; if (f && view.phase !== 'hex') v.pseg = f.seg; }
+      else v.info = 'RECOVERING…';
+    }
+  }
+  const d = {st:state, step:$('step').textContent, msg:$('msg').innerHTML, msgc:$('msg').className, err:errors, boot:$('boot').innerHTML,
+    cards:[...$('grid').querySelectorAll('.card')].map(c => [+c.dataset.no, c.className]),
+    sort:vis('sortBox'), tl:$('tl').innerHTML, tlc:$('tl').className, tlo:$('tl').style.transformOrigin, axis:$('tlAxis').innerHTML,
+    dm:vis('dm') ? $('dm').textContent : '', v,
+    ichi:vis('ichi'), bub:$('bubble').classList.contains('on') ? $('bubbleT').textContent : '', face:ichiFace,
+    dlg:vis('dlg') ? [$('dlg').className, $('dlgT').textContent] : null,
+    res:state === 'result' && lastResult && !lastResult.final ? [$('rGrade').textContent, $('rText').innerHTML] : null};
+  const str = JSON.stringify(d);
+  if (str === liveLast && !force) return;
+  liveLast = str; VB.live.frame(d);
+}
+
+const WATCH = !!(window.VOIDB && window.VOIDB.watching);
+let wSegs = {}, wCards = '', wPlayKey = '', wPlayImg = null;
+function watchInit(d){
+  assetsReady.then(() => {
+    wSegs = {}; wCards = '';
+    for (const x of d.segs){ const sg = Object.assign({gone:false, placed:false}, x); sg.img = compose(sg); wSegs[sg.no] = sg; }
+    R = {tut:d.tut, segs:Object.values(wSegs), hole:[0,0], fakes:0, hints:0, clues:[]};
+    if (wPending){ const f = wPending; wPending = null; watchFrame(f); }
+  });
+}
+let wPending = null;
+function setIf(el, prop, val){ if (el[prop] !== val) el[prop] = val; }
+function watchFrame(d){
+  if (!R || !Object.keys(wSegs).length){ wPending = d; return; }
+  state = d.st;
+  setIf($('step'), 'textContent', d.step); setIf($('msg'), 'innerHTML', d.msg); setIf($('msg'), 'className', d.msgc);
+  if (errors !== d.err){ errors = d.err; renderErr(); }
+  setIf($('boot'), 'innerHTML', d.boot);
+  $('sortBox').classList.toggle('hidden', !d.sort);
+  setIf($('tl'), 'innerHTML', d.tl); setIf($('tl'), 'className', d.tlc); $('tl').style.transformOrigin = d.tlo;
+  setIf($('tlAxis'), 'innerHTML', d.axis);
+  $('dm').classList.toggle('hidden', !d.dm); setIf($('dm'), 'textContent', d.dm);
+  // 网格：片段顺序变了才重画
+  const key = d.cards.map(c => c[0]).join(',');
+  if (key !== wCards){ wCards = key; renderGrid(d.cards.map(c => wSegs[c[0]]).filter(Boolean), false); }
+  for (const [no, cls] of d.cards){ const el = cardEl(no); if (el) setIf(el, 'className', cls); }
+  // 查看器
+  const v = d.v;
+  if (!v){ if (view) closeViewer(); }
+  else {
+    if (v.m === 'seg'){
+      const sg = wSegs[v.no];
+      if (sg && (!view || view.mode !== 'seg' || view.seg !== sg)){ view = newView('seg', sg, sg.img); $('viewer').classList.remove('hidden'); fitViewer(); }
+      $('vCap').classList.add('hidden');
+    } else {
+      if (!view || view.mode !== 'play' || view.wpi !== v.pi || view.phase !== v.ph){
+        const keep = view && view.mode === 'play' && view.phase === v.ph;
+        view = Object.assign(view && view.mode === 'play' ? view : newView('play', null, null), {phase:v.ph, wpi:v.pi, hexDur:v.hexDur || 1900});
+        if (!keep) view.pt0 = performance.now();
+        $('viewer').classList.remove('hidden'); fitViewer();
+      }
+      const pk = v.pseg ? JSON.stringify(v.pseg) : '';
+      if (pk !== wPlayKey){ wPlayKey = pk; wPlayImg = v.pseg ? compose(v.pseg) : null; }
+      view.seg = v.pseg || null; view.img = wPlayImg;
+      $('vCap').classList.toggle('hidden', !v.cap); setIf($('vCap'), 'innerHTML', v.cap || '');
+    }
+    if (view){
+      view.zt = v.zt; view.zx = v.zx; view.zy = v.zy;
+      if (!v.fx) view.fx = null;
+      else if (!view.fx || view.fx.type !== v.fx || view.wfxT !== v.fxT){
+        view.fx = {type:v.fx, t0:performance.now(), order:shuffle([...Array(Q.low ? 48 : 192).keys()])}; view.wfxT = v.fxT;
+      }
+      setIf($('vInfo'), 'innerHTML', v.info);
+      const st = $('stamp');
+      if (v.stamp){ if (st.innerHTML !== v.stamp[1] || st.classList.contains('hidden')){ st.innerHTML = v.stamp[1]; st.className = v.stamp[0]; } }
+      else st.classList.add('hidden');
+    }
+  }
+  // 一羽、教学对话、可以重来的失败
+  $('ichi').classList.toggle('hidden', !d.ichi);
+  $('bubble').classList.toggle('on', !!d.bub); if (d.bub) setIf($('bubbleT'), 'textContent', d.bub);
+  if (d.face) ichiDraw(d.face);
+  $('dlg').classList.toggle('hidden', !d.dlg);
+  if (d.dlg){ setIf($('dlg'), 'className', d.dlg[0]); setIf($('dlgT'), 'textContent', d.dlg[1]); }
+  if (d.res){ $('rGrade').textContent = d.res[0]; $('rGrade').className = 'grade lose'; $('rText').innerHTML = d.res[1] + '<br><span class="muted">等待操作者决定是否重来…</span>';
+    $('rStats').textContent = ''; $('result').classList.remove('hidden'); }
+  else $('result').classList.add('hidden');
+}
+function watchDrawPlay(now){
+  const W = vc.width, H = vc.height;
+  view.zs += (view.zt - view.zs) * 0.18;
+  vg.setTransform(1,0,0,1,0,0);
+  if (view.phase === 'hex'){ drawHex(W, H, now, Math.min(1, (now - view.pt0) / view.hexDur)); return; }
+  if (view.img){ drawBase(view.img, view.seg, now, 0); return; }
+  vg.fillStyle = '#000'; vg.fillRect(0,0,W,H);
+  vg.fillStyle = '#8a96a3'; vg.font = `${Math.round(W/34)}px sans-serif`; vg.textAlign = 'center'; vg.textBaseline = 'middle';
+  vg.fillText('恢复画面只有操作者能看到', W/2, H/2); vg.textAlign = 'start';
+  drawNoise(W, H, now, 0.15);
+}
+if (WATCH){
+  document.body.classList.add('void-watch');
+  $('intro').classList.add('hidden');
+  state = 'watch';
+  window.VOIDB.onInit(watchInit);
+  window.VOIDB.onFrame(watchFrame);
+}
+
 // 测试接口
 window.__void = {get R(){return R;}, get state(){return state;}, get lastResult(){return lastResult;}, get tut(){return tut;},
-  get sortList(){return sortList;}, get dlg(){return dlg;}, Q, compose, A, finish};
+  get sortList(){return sortList;}, get dlg(){return dlg;}, get view(){return view;}, Q, compose, A, finish};
 }
 </script>
 </body>

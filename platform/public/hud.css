@@ -254,3 +254,14 @@ body.shake main { animation: shake .12s steps(2) infinite; }
   .ustat .k { width: 84px; }
   .fkeys { overflow-x: auto; white-space: nowrap; }
 }
+
+/* ---------- 观战通知（第 3d 步） ---------- */
+#livebox { position: fixed; left: 12px; right: 12px; bottom: 14px; margin: 0 auto; max-width: 460px; z-index: 30; display: flex; flex-direction: column; gap: 6px; }
+.liveitem { display: flex; align-items: center; gap: 12px; padding: 7px 12px; background: rgba(2,10,14,.88); border: 1px solid var(--line2); color: var(--hi); font-size: 12px; }
+.liveitem .ld { width: 7px; height: 7px; border-radius: 50%; background: var(--bad); animation: blink 1.2s steps(2) infinite; flex: none; }
+.liveitem .lt { flex: 1; min-width: 0; }
+.liveitem .lt b { color: var(--fg); font-weight: 600; }
+.liveitem a { color: var(--bg); background: var(--fg); padding: 2px 12px; text-decoration: none; font-weight: 600; text-shadow: none; flex: none; }
+body.old .liveitem { background: var(--bg); border-style: dashed; }
+body.old .liveitem a { background: none; color: var(--fg); text-decoration: underline; padding: 0; }
+body.old .liveitem .ld { border-radius: 0; background: var(--fg); }

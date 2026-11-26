@@ -161,3 +161,15 @@ body.low * { transition: none !important; animation: none !important; }
   #bsod { font-size: 16px; padding: 10vh 8vw; }
   #bsod .sad { font-size: 80px; }
 }
+
+/* 远程监视（第 3d 步）：右下角通知 + 托盘图标 */
+#livetray { width: 30px; display: flex; align-items: center; justify-content: center; color: #ff8a8a !important; animation: lvb 1.4s infinite; }
+#livetray svg { width: 18px; height: 18px; }
+@keyframes lvb { 50% { opacity: .45; } }
+#livetoast { position: fixed; right: 12px; bottom: 60px; z-index: 850; width: 330px; max-width: calc(100vw - 24px); background: #1f1f1f; color: #fff; border: 1px solid #3a3a3a; box-shadow: 0 6px 24px rgba(0,0,0,.45); font-size: 13px; }
+#livetoast .lh { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; color: #bbb; font-size: 12px; }
+#livetoast .lh button { background: none; border: 0; color: #bbb; font-size: 16px; cursor: pointer; padding: 0 4px; }
+#livetoast .li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid #333; }
+#livetoast .li span { flex: 1; }
+#livetoast .li a { background: #0078d4; color: #fff; text-decoration: none; padding: 4px 14px; }
+#livetoast .li a:hover { background: #1a88e0; }

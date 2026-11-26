@@ -944,11 +944,14 @@ route('POST', '/api/kp/glitch', async (req, res, body) => {
   ok(res, { ok: true, online: EV.online().includes(u.id) });
 });
 
-// 测试账号：test-ho1（人类）、test-ho2（仿生人）。每次重置生成新密码，并清空进度和消息。
+// 测试账号：test-ho1（人类）— test-ho2（新型仿生人）、test-ho3（人类）— test-ho4（旧型仿生人），两对搭档。
+// 每次重置生成新密码，并清空进度和消息、开放全部游戏入口。
 route('POST', '/api/kp/test/reset', async (req, res) => {
   if (!requireKp(req, res)) return;
   const made = [];
-  for (const [username, ho, name] of [['test-ho1', 'HO1', '测试员（人类）'], ['test-ho2', 'HO2', '测试机（仿生人）']]) {
+  const TESTS = [['test-ho1', 'HO1', '测试员（人类）'], ['test-ho2', 'HO2', '测试机（仿生人）'], ['test-ho3', 'HO3', '测试员二（人类）'], ['test-ho4', 'HO4', '测试机二（旧型）']];
+  for (const [username, ho, name] of TESTS) {
+    const android = ho === 'HO2' || ho === 'HO4';
     const password = A.readablePassword();
     let u = findUser(username);
     if (!u) {
@@ -957,7 +960,8 @@ route('POST', '/api/kp/test/reset', async (req, res) => {
     }
     Object.assign(u, {
       pw: A.hash(password), ho, kind: HO_INFO[ho].kind, test: true, status: 'approved',
-      sheet: { name, dex: 60, hp: 12, comp: ho === 'HO2' ? 80 : 50, hack: 0, spot: 60, mech: 20, lock: 20, idea: 60 },
+      // 仿生人 HP 是人类的两倍（模组规则）；HO4 带《艺术（黑客）》，方便测骇入
+      sheet: { name, dex: 60, hp: android ? 24 : 12, comp: android ? 80 : 50, hack: ho === 'HO4' ? 70 : 0, spot: 60, mech: 20, lock: 20, idea: 60 },
     });
     u.hpNow = u.sheet.hp;
     u.vitals = { hr: null, bp: null, rr: null };

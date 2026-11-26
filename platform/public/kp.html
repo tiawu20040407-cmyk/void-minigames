@@ -231,6 +231,7 @@ function isDirty(sel) { const el = typeof sel === 'string' ? $(sel) : sel; retur
 
 async function load() {
   const r = await api('/api/kp/state');
+  if (r.net) { setTimeout(refreshSoon, 5000); return; } // 没连上：保持原样，稍后再读
   if (!r.ok) return location.replace('/kp/login');
   S = r;
   render();
@@ -793,8 +794,16 @@ document.addEventListener('pointerdown', () => { try { kctx = kctx || new (windo
 
 // 服务器推送：玩家上下线只更新在线点，其他变化重新读取（正在填写的表单不会被覆盖）
 let timer = null, needFull = false;
+function refreshSoon() { needFull = false; clearTimeout(timer); timer = setTimeout(load, 200); }
+
+// 手机浏览器锁屏、切到别的应用时推送连接会断，自动重连后中间的推送就丢了。
+// 所以：重连成功、页面回到前台时重新读取一次；页面看得见时每 30 秒再兜底读一次。
+let esOpened = false;
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshSoon(); });
+setInterval(() => { if (document.visibilityState === 'visible') refreshSoon(); }, 30000);
 function connect() {
   const es = new EventSource('/api/events?kp=1');
+  es.onopen = () => { if (esOpened) refreshSoon(); esOpened = true; };
   es.addEventListener('state', ev => {
     let what = 'state';
     try { what = JSON.parse(ev.data).what; } catch {}

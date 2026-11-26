@@ -757,7 +757,31 @@ def live_tests(kp, phc, br, errs):
     g.evaluate('__void.finish(false)')
     hd.wait_for_selector('#livebox', state='detached', timeout=5000)
     check(True, '结束后 HUD 通知消失')
-    hd.close(); g.close(); hc.close()
+    hd.close(); g.close()
+
+    print('手机：推送断开期间开局')
+    mc = br.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True)
+    mc.add_cookies(phc.cookies())
+    hm = mc.new_page(); hm.on('pageerror', lambda e: errs.append('hud-mobile: ' + str(e)))
+    hm.goto(B + '/hud')
+    if hm.locator('#boot:not([hidden])').count(): hm.click('#boot')
+    hm.wait_for_selector('#link >> text=链路正常', timeout=5000)
+    mc.set_offline(True); hm.wait_for_timeout(500)       # 模拟锁屏 / 切到别的应用，推送断开
+    g = hc.new_page(); g.goto(B + '/games/hack/'); g.wait_for_selector('#btnStart'); g.click('#btnStart')
+    g.wait_for_function("__void.state === 'play'", timeout=5000)
+    g.evaluate('__void.G.player.hp = 999')   # 测试里别让操作者中途输掉
+    hm.wait_for_timeout(800)
+    check(hm.locator('#livebox').count() == 0, '断开期间收不到通知（模拟手机）')
+    hm.evaluate("document.dispatchEvent(new Event('visibilitychange'))")   # 断网时页面读取失败
+    hm.wait_for_timeout(1000)
+    check(hm.url.endswith('/hud'), '断网时读取失败不会跳回登录页')
+    mc.set_offline(False)
+    hm.evaluate("document.dispatchEvent(new Event('visibilitychange'))")   # 回到前台
+    hm.wait_for_selector('#livebox >> text=HO1 正在运行', timeout=8000)
+    box = hm.locator('#livebox').bounding_box()
+    check(box and box['y'] + box['height'] <= 844 and box['y'] > 0, '回到前台后通知出现，在手机屏幕可见范围内')
+    hm.screenshot(path=f'{SHOTS}/watch-hud-mobile.png')
+    g.evaluate('__void.finish(false)'); g.close(); mc.close(); hc.close()
 
 if __name__ == '__main__':
     main()

@@ -31,6 +31,7 @@ const openMsgs = new Set();
 
 async function render() {
   const [r, meta] = await Promise.all([api('/api/me' + Q), fields.length ? null : api('/api/meta')]);
+  if ([r, meta].some(x => x && x.net)) { setTimeout(refreshSoon, 5000); return; } // 没连上：保持原样，稍后再读
   if (meta) fields = meta.fields || [];
   if (!r.user) return location.replace(AS ? '/kp' : '/');
   if (r.user.role === 'kp') return location.replace('/kp');
@@ -145,8 +146,15 @@ document.addEventListener('pointerdown', () => { try { actx = actx || new (windo
 // 服务器推送：有变化就重新读取
 let timer = null;
 function refreshSoon() { clearTimeout(timer); timer = setTimeout(render, 150); }
+
+// 手机浏览器锁屏、切到别的应用时推送连接会断，自动重连后中间的推送就丢了。
+// 所以：重连成功、页面回到前台时重新读取一次；页面看得见时每 30 秒再兜底读一次。
+let esOpened = false;
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshSoon(); });
+setInterval(() => { if (document.visibilityState === 'visible') refreshSoon(); }, 30000);
 function connect() {
   const es = new EventSource(AS ? '/api/events?kp=1' : '/api/events');
+  es.onopen = () => { if (esOpened) refreshSoon(); esOpened = true; };
   es.addEventListener('refresh', refreshSoon);
   es.addEventListener('message', refreshSoon);
   es.addEventListener('state', refreshSoon); // 预览模式下收到的是 KP 的推送

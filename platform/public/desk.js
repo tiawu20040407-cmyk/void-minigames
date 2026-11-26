@@ -35,6 +35,7 @@ async function load() {
     api('/api/me' + Q), api('/api/desk' + Q), api('/api/entries' + Q), api('/api/messages' + Q),
     fields.length ? null : api('/api/meta'),
   ]);
+  if ([r, d, ent, msg, meta].some(x => x && x.net)) { linkState(false); if (me) setTimeout(refreshSoon, 5000); return; } // 没连上：保持原样，稍后再读
   if (!r.user) return location.replace(AS ? '/kp' : '/');
   // 不是已审核的人类（仿生人、KP 退回修改、换了账号）：回到普通终端，由它再分流
   if (!d.ok || r.user.role !== 'player' || r.user.status !== 'approved' || !(r.user.ho === 'HO1' || r.user.ho === 'HO3')) return location.replace('/terminal' + location.search);
@@ -426,9 +427,15 @@ setInterval(tick, 5000); tick();
 function linkState(on) { const l = $('#link'); l.classList.toggle('off', !on); l.title = on ? '已连接' : '网络已断开'; }
 let timer = null;
 function refreshSoon() { clearTimeout(timer); timer = setTimeout(load, 150); }
+
+// 手机浏览器锁屏、切到别的应用时推送连接会断，自动重连后中间的推送就丢了。
+// 所以：重连成功、页面回到前台时重新读取一次；页面看得见时每 30 秒再兜底读一次。
+let esOpened = false;
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshSoon(); });
+setInterval(() => { if (document.visibilityState === 'visible') refreshSoon(); }, 30000);
 function connect() {
   const es = new EventSource(PREVIEW ? '/api/events?kp=1' : '/api/events');
-  es.onopen = () => linkState(true);
+  es.onopen = () => { linkState(true); if (esOpened) refreshSoon(); esOpened = true; };
   es.addEventListener('refresh', refreshSoon);
   es.addEventListener('message', refreshSoon);
   es.addEventListener('state', ev => { // 预览模式下收到的是 KP 的推送；记事本保存这种只和 KP 有关的不用刷新
@@ -442,4 +449,6 @@ function connect() {
     if (es.readyState === EventSource.CLOSED) setTimeout(() => load().then(connect), 5000);
   };
 }
-load().then(() => { if (me) connect(); });
+// 第一次读取没连上时 5 秒后重试，读到了再开始推送连接
+function start() { load().then(() => { if (me) connect(); else setTimeout(start, 5000); }); }
+start();

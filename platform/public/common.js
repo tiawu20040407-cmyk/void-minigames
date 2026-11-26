@@ -5,8 +5,10 @@ async function api(path, body) {
     ? { credentials: 'same-origin' }
     : { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Void': '1' }, body: JSON.stringify(body) };
   let r;
-  try { r = await fetch(path, opt); } catch { return { ok: false, error: '连接不到服务器' }; }
-  try { return await r.json(); } catch { return { ok: false, error: '服务器返回异常（' + r.status + '）' }; }
+  // net: true 表示没连上平台（断网、手机锁屏后、平台重启时 Cloudflare 返回的错误页）。
+  // 这种情况页面保持原样、稍后重试，不能当成“没登录”跳回登录页。
+  try { r = await fetch(path, opt); } catch { return { ok: false, net: true, error: '连接不到服务器' }; }
+  try { return await r.json(); } catch { return { ok: false, net: true, error: '服务器返回异常（' + r.status + '）' }; }
 }
 
 function $(sel, root = document) { return root.querySelector(sel); }

@@ -268,7 +268,8 @@ function renderUsers() {
       <div class="unl">${unl || '<span class="dim">还没有游戏入口</span>'}</div>
       ${u.status === 'approved' && S.entries.length ? `<div class="plays">${S.entries.map(e => {
         const p = (S.plays[u.id] || {})[e.id] || { used: 0, allowed: 1 };
-        return `<span>${esc(e.name)}：正式判定 <b>${p.used}/${p.allowed}</b> <button class="small" data-grant="${u.id}" data-gentry="${esc(e.id)}">再给一次</button></span>`;
+        return `<span>${esc(e.name)}：正式判定 <b>${p.used}/${p.allowed}</b> <button class="small" data-grant="${u.id}" data-gentry="${esc(e.id)}">再给一次</button>` +
+          (p.extra > 0 ? ` <button class="small" data-grant="${u.id}" data-gentry="${esc(e.id)}" data-delta="-1">收回一次</button>` : '') + '</span>';
       }).join('')}</div>` : ''}
       ${open.has(u.id) ? `<div class="edit">
         <div class="sheet"></div>
@@ -669,7 +670,7 @@ document.addEventListener('click', async e => {
   }
   // 游戏结果、正式判定次数
   if (b.dataset.grant) {
-    const r = await api('/api/kp/game/grant', { uid: Number(b.dataset.grant), entry: b.dataset.gentry });
+    const r = await api('/api/kp/game/grant', { uid: Number(b.dataset.grant), entry: b.dataset.gentry, delta: Number(b.dataset.delta || 1) });
     if (!r.ok) return alert(r.error);
     return load();
   }

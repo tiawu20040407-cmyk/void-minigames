@@ -127,7 +127,7 @@ function gameSettings(entryId) {
 function playInfo(uid, entryId) {
   const p = (db.plays[uid] && db.plays[uid][entryId]) || { used: 0, extra: 0 };
   const allowed = 1 + (p.extra || 0);
-  return { used: p.used || 0, allowed, official: (p.used || 0) < allowed };
+  return { used: p.used || 0, allowed, extra: p.extra || 0, official: (p.used || 0) < allowed };
 }
 // 游戏页面里注入的会话信息：玩家的角色名、技能值、KP 的设置、正式局是否还有
 function gameSession(user, entry) {
@@ -1066,7 +1066,7 @@ route('POST', '/api/kp/game/settings', async (req, res, body) => {
   ok(res);
 });
 
-// 再给一次正式局
+// 再给一次正式局（delta: -1 是“收回一次”，只能收回之前多给的）
 route('POST', '/api/kp/game/grant', async (req, res, body) => {
   if (!requireKp(req, res)) return;
   const u = findPlayer(body.uid);
@@ -1074,7 +1074,10 @@ route('POST', '/api/kp/game/grant', async (req, res, body) => {
   if (!u || !e) return err(res, 404, '玩家或游戏不存在');
   db.plays[u.id] = db.plays[u.id] || {};
   const p = db.plays[u.id][e.id] = db.plays[u.id][e.id] || { used: 0, extra: 0 };
-  p.extra = (p.extra || 0) + 1;
+  if (Number(body.delta) === -1) {
+    if (!(p.extra > 0)) return err(res, 400, '没有多给的次数可以收回');
+    p.extra -= 1;
+  } else p.extra = (p.extra || 0) + 1;
   DB.save();
   EV.send(u.id, 'refresh', { what: 'plays' });
   notifyKp();

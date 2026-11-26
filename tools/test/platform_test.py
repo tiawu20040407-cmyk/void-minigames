@@ -197,6 +197,7 @@ def run(code):
 
         hud_tests(kp, ph, phc, br, errs)
         desk_tests(kp, br, errs)
+        game_tests(kp, phc, errs)
 
         print('入口改名与自动发现')
         row = kp.locator('.entry-row[data-eid=footage]')
@@ -552,6 +553,83 @@ def desk_tests(kp, br, errs):
     h.wait_for_url(B + '/desk', timeout=8000)
     check(True, '再次通过后回到办公电脑')
     hc.close()
+
+def game_tests(kp, phc, errs):
+    def kapi(path, body=None):
+        return kp.evaluate('p => api(p)', path) if body is None else kp.evaluate('([p, b]) => api(p, b)', [path, body])
+    print('游戏接入（3c）')
+    kapi('/api/kp/unlock', {'uid': 2, 'entry': 'footage', 'state': 'open'})
+    kapi('/api/kp/unlock', {'uid': 2, 'entry': 'hack', 'state': 'open'})
+    kp.reload(); kp.wait_for_selector('.entry-row[data-eid="footage"] [data-gs="tier"]')
+    row = kp.locator('.entry-row[data-eid="footage"]')
+    row.locator('[data-gs="tier"]').select_option('high'); row.locator('[data-gs="retries"]').select_option('0')
+    row.locator('[data-gs="tut"]').select_option('0'); row.locator('[data-gs="clues"][value="cat"]').uncheck()
+    row.locator('[data-esave]').click(); kp.wait_for_timeout(800)
+    st = kapi('/api/kp/state')
+    check(st['gameSettings']['footage'] == {'tier': 'high', 'retries': '0', 'tut': '0', 'clues': ['weather', 'umbrella', 'paper']}, '控制台保存录像排序的设置')
+    comp = next(u for u in st['users'] if u['id'] == 2)['sheet']['comp']
+
+    g = phc.new_page(); g.on('pageerror', lambda e: errs.append('game: ' + str(e)))
+    g.goto(B + '/games/footage/'); g.wait_for_function("!document.querySelector('#btnStart').disabled && document.querySelector('#btnStart').textContent.includes('正式判定')", timeout=8000)
+    sess = g.evaluate('VOID_SESSION')
+    check(sess['role'] == 'player' and sess['skill'] == comp and sess['official'], '游戏拿到玩家的《计算机使用》和正式判定次数')
+    check(g.input_value('#inSkill') == str(comp) and g.get_attribute('#inSkill', 'readonly') is not None, '技能值只显示、不能改')
+    check(not g.locator('#tierSeg').is_visible() and not g.locator('#clueBox').is_visible() and not g.locator('#demoNote').is_visible(), 'KP 的设置对玩家隐藏')
+    check(not g.evaluate("document.querySelector('#clueBox input[value=cat]').checked"), 'KP 的设置已用上（去掉了一种破绽）')
+    g.click('#btnStart'); g.wait_for_function("__void.state !== 'intro'", timeout=5000)
+    check(kapi('/api/kp/state')['plays']['2']['footage']['used'] == 1, '点开始就用掉一次正式判定')
+    g.evaluate('__void.finish(false)'); g.wait_for_selector('#voidUp >> text=结果已上传给 KP', timeout=5000)
+    check(not g.locator('#btnCopy').is_visible() and not g.locator('#rLine').is_visible(), '从平台打开时没有“复制结果”')
+    r = kapi('/api/kp/state')['results'][0]
+    check(r['entry'] == 'footage' and r['official'] and r['result']['grade'] == 'lose' and r['result']['final'] and r['result']['skill'] == comp, 'KP 收到正式结果')
+    g.click('#btnAgain'); g.wait_for_selector('#btnStart >> text=练习')
+    check(True, '正式判定用完后，开始按钮变成练习')
+    kp.reload(); kp.click('button[data-grant="2"][data-gentry="footage"]'); kp.wait_for_timeout(500)
+    g.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+    g.wait_for_selector('#btnStart >> text=正式判定', timeout=5000)
+    check(True, 'KP“再给一次”后玩家页面恢复正式判定')
+
+    print('断线补传')
+    n0 = len(kapi('/api/kp/state')['results'])
+    g.click('#btnStart'); g.wait_for_function("__void.state !== 'intro'", timeout=5000)
+    g.context.set_offline(True)
+    g.evaluate('__void.finish(true)'); g.wait_for_selector('#voidUp >> text=暂时没有上传成功', timeout=5000)
+    check(len(kapi('/api/kp/state')['results']) == n0, '断线时结果先存在浏览器')
+    g.context.set_offline(False); g.evaluate("window.dispatchEvent(new Event('online'))")
+    g.wait_for_selector('#voidUp >> text=结果已上传给 KP', timeout=8000)
+    g.evaluate("window.dispatchEvent(new Event('online'))"); g.wait_for_timeout(800)
+    rs = kapi('/api/kp/state')['results']
+    check(len(rs) == n0 + 1 and rs[0]['result']['grade'] != 'lose', '连上后自动补传，只记一次')
+
+    print('骇入')
+    kapi('/api/kp/game/settings', {'entry': 'hack', 'settings': {'difficulty': '1.6', 'stage': 'boss'}})
+    g.goto(B + '/games/hack/'); g.wait_for_selector('#btnStart >> text=正式判定')
+    check(not g.locator('#diffSeg').is_visible() and not g.locator('#stageSeg').is_visible() and g.input_value('#inSkill') == '1', '骇入：难度、关卡隐藏，技能 0 按 1 算')
+    g.click('#btnStart'); g.wait_for_function("__void.state === 'play'", timeout=5000)
+    g.evaluate('__void.finish(true)'); g.wait_for_selector('#voidUp >> text=结果已上传给 KP', timeout=5000)
+    r = kapi('/api/kp/state')['results'][0]
+    check(r['entry'] == 'hack' and r['official'] and r['result']['stage'] == 'boss' and r['result']['difficulty'] == 1.6, '骇入结果用的是 KP 定的难度和关卡')
+    g.click('#btnRetry'); g.wait_for_selector('#btnStart >> text=练习')
+    g.click('#btnStart'); g.wait_for_function("__void.state === 'play'", timeout=5000)
+    kapi('/api/kp/unlock', {'uid': 2, 'entry': 'hack', 'state': 'hidden'})
+    g.evaluate('__void.finish(false)'); g.wait_for_selector('#voidUp >> text=结果已上传给 KP', timeout=5000)
+    r = kapi('/api/kp/state')['results'][0]
+    check(r['entry'] == 'hack' and not r['official'], '入口关闭后，已开始的这一局仍能上传（记为练习）')
+    check(g.request.post(B + '/api/game/start', data={'game': 'hack'}, headers={'X-Void': '1'}).status == 403, '入口关闭后不能再开新局')
+    g.close()
+
+    print('控制台结果')
+    kp.reload(); kp.wait_for_selector('#results table')
+    t = kp.inner_text('#results')
+    check('守卫程序' in t and '正式' in t and '练习' in t, '控制台“游戏结果”列出正式和练习')
+    kp.once('dialog', lambda d: d.accept())
+    n1 = len(kapi('/api/kp/state')['results'])
+    kp.locator('#results [data-rdel]').first.click(); kp.wait_for_timeout(600)
+    check(len(kapi('/api/kp/state')['results']) == n1 - 1, '删除一条结果')
+    kg = kp.context.new_page(); kg.goto(B + '/games/hack/'); kg.wait_for_selector('#diffSeg')
+    check(kg.evaluate('VOID_SESSION.role') == 'kp' and kg.locator('#diffSeg').is_visible(), 'KP 打开游戏：所有选项可调')
+    kg.close()
+    kapi('/api/kp/unlock', {'uid': 2, 'entry': 'hack', 'state': 'open'})
 
 if __name__ == '__main__':
     main()

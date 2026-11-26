@@ -40,7 +40,14 @@
   .scanitem .who { font-size: 13px; margin-top: 6px; }
   .hudrow { display: flex; gap: 8px 12px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
   .hudrow input, .hudrow select { width: auto; padding: 4px 8px; font-size: 14px; }
-  @media (max-width: 640px) { .entry-row { grid-template-columns: 1fr; } }
+  .gset { grid-column: 1 / -1; display: flex; gap: 6px 14px; flex-wrap: wrap; align-items: center; font-size: 13px; color: var(--dim); padding: 2px 0 6px 118px; }
+  .gset select { width: auto; padding: 3px 6px; font-size: 13px; }
+  .gset label { display: inline-flex; gap: 4px; align-items: center; margin: 0; color: var(--text); font-size: 13px; }
+  .plays { margin-top: 8px; display: flex; gap: 6px 16px; flex-wrap: wrap; font-size: 13px; color: var(--dim); }
+  .plays b { color: var(--text); font-weight: normal; }
+  table.res td { vertical-align: top; }
+  table.res .sum { font-size: 13px; }
+  @media (max-width: 640px) { .entry-row { grid-template-columns: 1fr; } .gset { padding-left: 0; } }
 </style>
 </head>
 <body>
@@ -53,7 +60,7 @@
   <h1>KP 控制台</h1>
   <div class="sub" id="sub"></div>
   <div class="toc">
-    <a href="#p-players">玩家</a><a href="#p-vitals">体征</a><a href="#p-scans">扫描条目</a><a href="#p-glitch">界面故障</a><a href="#p-hud">仿生人界面</a><a href="#p-desk">办公电脑</a><a href="#p-presets">场景预设</a><a href="#p-msg">发送消息</a><a href="#p-entries">游戏入口</a>
+    <a href="#p-players">玩家</a><a href="#p-results">游戏结果</a><a href="#p-vitals">体征</a><a href="#p-scans">扫描条目</a><a href="#p-glitch">界面故障</a><a href="#p-hud">仿生人界面</a><a href="#p-desk">办公电脑</a><a href="#p-presets">场景预设</a><a href="#p-msg">发送消息</a><a href="#p-entries">游戏入口</a>
     <a href="#p-invites">邀请码</a><a href="#p-test">测试账号</a><a href="#p-sys">系统状态</a><a href="#p-log">登录记录</a>
   </div>
 
@@ -64,6 +71,12 @@
       改动会立刻推送到玩家页面。关闭正在玩的游戏时，玩家这一局可以打完，之后打不开。
     </div>
     <div class="ulist" id="users"></div>
+  </div>
+
+  <div class="panel" id="p-results">
+    <h2>游戏结果</h2>
+    <div class="dim" style="font-size:13px;margin-bottom:10px">玩家从平台打开游戏，每次出结果都会自动传到这里，正式判定的结果到达时有提示音。每人每个游戏默认 1 次正式判定（点“开始”就算用掉），用完后再玩记为练习；在上面玩家卡片里点“再给一次”补一次。</div>
+    <div id="results"></div>
   </div>
 
   <div class="panel" id="p-vitals">
@@ -211,7 +224,7 @@ async function load() {
 function render() {
   $('#sub').textContent = `已登录：${S.kpName}`;
   $('#ho').innerHTML = Object.entries(S.hos).map(([k, v]) => `<option value="${k}">${k}（${v.kind}）</option>`).join('');
-  renderUsers(); renderVitals(); renderScans(); renderHud(); renderDesk(); renderPresets(); renderCompose(); renderSent(); renderEntries(); renderInvites(); renderLog();
+  renderUsers(); renderResults(); renderVitals(); renderScans(); renderHud(); renderDesk(); renderPresets(); renderCompose(); renderSent(); renderEntries(); renderInvites(); renderLog();
 }
 
 function sortedUsers() { return S.users.slice().sort((a, b) => (a.test - b.test) || a.ho.localeCompare(b.ho)); }
@@ -253,6 +266,10 @@ function renderUsers() {
         <button class="small" data-act="edit">${open.has(u.id) ? '收起' : '编辑'}</button>
       </div>
       <div class="unl">${unl || '<span class="dim">还没有游戏入口</span>'}</div>
+      ${u.status === 'approved' && S.entries.length ? `<div class="plays">${S.entries.map(e => {
+        const p = (S.plays[u.id] || {})[e.id] || { used: 0, allowed: 1 };
+        return `<span>${esc(e.name)}：正式判定 <b>${p.used}/${p.allowed}</b> <button class="small" data-grant="${u.id}" data-gentry="${esc(e.id)}">再给一次</button></span>`;
+      }).join('')}</div>` : ''}
       ${open.has(u.id) ? `<div class="edit">
         <div class="sheet"></div>
         <div class="grid"><div><label>当前 HP</label><input name="hpNow" type="number" min="0" max="99" value="${u.hpNow}"></div>
@@ -400,8 +417,51 @@ function renderEntries() {
       <input name="ename" maxlength="30" value="${esc(e.name)}" placeholder="名字">
       <input name="edesc" maxlength="200" value="${esc(e.desc)}" placeholder="说明（可不填）">
       <span style="white-space:nowrap"><button class="small primary" data-esave="${e.id}">保存</button>
-      <a class="btn small" href="${e.url}" target="_blank" rel="noopener">打开</a></span></div>`).join('')
+      <a class="btn small" href="${e.url}" target="_blank" rel="noopener">打开</a></span>${gameSetHtml(e.id)}</div>`).join('')
     : '<div class="dim">服务器 games/ 里还没有游戏。</div>';
+}
+
+// 游戏设置（玩家看不到）：和名字、说明一起保存
+function gameSetHtml(id) {
+  const def = S.gameDefs[id];
+  if (!def) return '';
+  const cur = S.gameSettings[id] || {};
+  return '<div class="gset">设置（玩家看不到）：' + def.settings.map(f => f.multi
+    ? `<span>${esc(f.label)}</span>` + f.options.map(([v, n]) => `<label><input type="checkbox" data-gs="${f.key}" value="${v}" ${(cur[f.key] || []).includes(v) ? 'checked' : ''}>${esc(n)}</label>`).join('')
+    : `<label>${esc(f.label)}<select data-gs="${f.key}">${f.options.map(([v, n]) => `<option value="${v}" ${String(cur[f.key]) === v ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>`).join('') + '</div>';
+}
+function readGameSet(row, id) {
+  const def = S.gameDefs[id], out = {};
+  for (const f of def.settings) out[f.key] = f.multi ? $$(`[data-gs="${f.key}"]:checked`, row).map(x => x.value) : $(`[data-gs="${f.key}"]`, row).value;
+  return out;
+}
+
+// 游戏结果：一行一条，最新的在上面
+const GRADE = { perfect: ['极限成功', 'good'], win: ['成功', 'good'], lose: ['失败', 'bad'] };
+function resultSummary(r) {
+  const x = r.result || {};
+  if (r.entry === 'hack') {
+    const stage = { firewall: '防火墙', swarm: '数据流', boss: '守卫程序' }[x.stage] || x.stage;
+    return `${stage} · 难度 ${x.difficulty} · 技能 ${x.skill} · 耐久 ${x.hpLeft}/${x.hpMax} · 用时 ${x.time} 秒` +
+      (x.grade === 'lose' ? ` · 骇入进度 ${Math.round((x.progress || 0) * 100)}% · 警察仿生人 HP 削减 ${x.enemyHPCut}` : '');
+  }
+  if (r.entry === 'footage') {
+    return `${x.segments} 段（伪造 ${x.fakes}）· 技能 ${x.skill} · 错误 ${x.errors} · 第 ${x.attempt} 次尝试${x.hintUsed ? ' · 用了提示' : ''} · 用时 ${x.time} 秒` +
+      (x.final === false ? ' · <b>还可以重来</b>' : '');
+  }
+  return esc(JSON.stringify(x).slice(0, 200));
+}
+function renderResults() {
+  const byId = Object.fromEntries(S.users.map(u => [u.id, u]));
+  const names = Object.fromEntries(S.entries.map(e => [e.id, e.name]));
+  $('#results').innerHTML = S.results.length ? '<table class="res"><tr><th>时间</th><th>玩家</th><th>游戏</th><th>类型</th><th>结果</th><th>详情</th><th></th></tr>' + S.results.map(r => {
+    const u = byId[r.uid], g = GRADE[(r.result || {}).grade] || [esc((r.result || {}).grade || '—'), ''];
+    return `<tr><td style="white-space:nowrap">${fmtTime(r.t)}</td><td>${u ? esc(u.ho) + ' ' + esc(u.sheet.name) : '（已删除）'}</td>
+      <td>${esc(names[r.entry] || r.entry)}</td>
+      <td>${r.official ? '<span class="tag good">正式</span>' : '<span class="tag">练习</span>'}${r.test ? ' <span class="tag">测试</span>' : ''}</td>
+      <td><span class="tag ${g[1]}">${g[0]}</span></td><td class="sum">${resultSummary(r)}</td>
+      <td><button class="small danger" data-rdel="${esc(r.id)}">删除</button></td></tr>`;
+  }).join('') + '</table>' : '<div class="dim">还没有结果。</div>';
 }
 
 function renderInvites() {
@@ -607,11 +667,26 @@ document.addEventListener('click', async e => {
     await api('/api/kp/message/delete', { id: b.dataset.mdel });
     return load();
   }
+  // 游戏结果、正式判定次数
+  if (b.dataset.grant) {
+    const r = await api('/api/kp/game/grant', { uid: Number(b.dataset.grant), entry: b.dataset.gentry });
+    if (!r.ok) return alert(r.error);
+    return load();
+  }
+  if (b.dataset.rdel) {
+    if (!confirm('删除这条结果？')) return;
+    await api('/api/kp/result/delete', { id: b.dataset.rdel });
+    return load();
+  }
   // 入口
   if (b.dataset.esave) {
     const row = b.closest('.entry-row');
     const r = await api('/api/kp/entry', { id: b.dataset.esave, name: $('[name=ename]', row).value, desc: $('[name=edesc]', row).value });
     if (!r.ok) return alert(r.error);
+    if (S.gameDefs[b.dataset.esave]) {
+      const r2 = await api('/api/kp/game/settings', { entry: b.dataset.esave, settings: readGameSet(row, b.dataset.esave) });
+      if (!r2.ok) return alert(r2.error);
+    }
     b.textContent = '已保存';
     clean($('#entries'));
     setTimeout(load, 600);
@@ -645,6 +720,23 @@ document.addEventListener('click', async e => {
   if (b.id === 'sysr') return loadSys();
 });
 
+// 正式判定的结果到达：提示音
+let kctx = null;
+function resultBeep() {
+  try {
+    kctx = kctx || new (window.AudioContext || window.webkitAudioContext)();
+    if (kctx.state === 'suspended') kctx.resume();
+    const t0 = kctx.currentTime;
+    [[0, 660], [0.12, 880], [0.24, 1320]].forEach(([dt, f]) => {
+      const o = kctx.createOscillator(), g = kctx.createGain();
+      o.frequency.value = f; g.gain.setValueAtTime(0.0001, t0 + dt);
+      g.gain.exponentialRampToValueAtTime(0.15, t0 + dt + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.25);
+      o.connect(g).connect(kctx.destination); o.start(t0 + dt); o.stop(t0 + dt + 0.3);
+    });
+  } catch {}
+}
+document.addEventListener('pointerdown', () => { try { kctx = kctx || new (window.AudioContext || window.webkitAudioContext)(); kctx.resume(); } catch {} }, { once: true });
+
 // 服务器推送：玩家上下线只更新在线点，其他变化重新读取（正在填写的表单不会被覆盖）
 let timer = null, needFull = false;
 function connect() {
@@ -653,6 +745,7 @@ function connect() {
     let what = 'state';
     try { what = JSON.parse(ev.data).what; } catch {}
     if (what !== 'presence') needFull = true; // 短时间内收到多条推送时，只要有一条需要完整刷新就完整刷新
+    if (what === 'result-official') resultBeep();
     clearTimeout(timer);
     timer = setTimeout(async () => {
       const full = needFull; needFull = false;

@@ -163,8 +163,9 @@ button:disabled{opacity:.35;cursor:default}
     <div class="row"><label><input type="checkbox" id="inLow"> 简化特效</label><span class="muted">（卡顿时会自动开启）</span></div>
     <hr>
     <div id="rules"></div>
+    <div class="muted" id="voidInfo" style="margin-bottom:6px"></div>
     <div class="row"><button id="btnStart">调取录像</button></div>
-    <div class="muted" style="margin-top:8px">demo：正式版中技能值由角色录入界面提供；段数、重来次数、教学、破绽类型由 KP 设定，玩家看不到。</div>
+    <div class="muted" id="demoNote" style="margin-top:8px">demo：正式版中技能值由角色录入界面提供；段数、重来次数、教学、破绽类型由 KP 设定，玩家看不到。</div>
   </div>
 </div>
 
@@ -202,6 +203,7 @@ button:disabled{opacity:.35;cursor:default}
     <hr>
     <div id="rStats" class="muted"></div>
     <div class="resline" id="rLine"></div>
+    <div class="muted" id="voidUp" style="display:none"></div>
     <div class="row">
       <button id="btnRetry" class="hidden">重来</button>
       <button id="btnCopy">复制结果</button>
@@ -1183,6 +1185,7 @@ function finish(win){
   const gName = {perfect:TEXT.gradePerfect, win:TEXT.gradeWin, lose:TEXT.gradeLose}[grade];
   lastResult = {game:'footage-sort', operator, skill, segments:R.segs.length, fakes:R.fakes, clues:R.clues, grade,
                 errors, attempt, hintUsed, time:+used.toFixed(1), final:!canRetry};
+  if (VB) VB.report(Object.assign({}, lastResult, {official: VB.official}));
   $('rGrade').textContent = gName; $('rGrade').className = 'grade ' + (win ? 'win' : 'lose');
   $('rText').innerHTML = win ? TEXT.winText + (perfect ? '<br><span class="muted">' + TEXT.perfectExtra + '</span>' : '') : TEXT.loseText;
   $('rStats').textContent = `${R.segs.length} 段（伪造 ${R.fakes}）· 错误 ${errors}/${CONFIG.maxErrors} · 第 ${attempt} 次尝试` +
@@ -1219,7 +1222,18 @@ function refreshIntro(){
     '<br><span class="muted">零失误、未用提示、第一次就通关为极限成功；重来后通关为成功。</span>';
 }
 $('inSkill').addEventListener('input', refreshIntro);
-$('btnStart').onclick = () => {
+// 从平台打开时，点开始先向服务器登记这一局（还有正式判定就用掉一次），再开始
+$('btnStart').onclick = async () => {
+  sndInit();
+  if (VB){
+    $('btnStart').disabled = true;
+    const r = await VB.start();
+    $('btnStart').disabled = false;
+    if (!r.ok){ $('voidInfo').textContent = r.error; return; }
+  }
+  introStart();
+};
+function introStart(){
   sndInit(); SFX.click();
   operator = $('inName').value.trim() || 'HO2'; refreshIntro(); $('inSkill').value = skill;
   attempt = 1; openSaid = false; $('intro').classList.add('hidden');
@@ -1244,12 +1258,37 @@ function loop(now){
 addEventListener('resize', () => { if (view) fitViewer(); spotKey = ''; });
 initPlaceholders(); ichiDraw('normal'); renderErr(); refreshIntro();
 $('btnStart').disabled = true; $('btnStart').textContent = '加载中…';
-loadAssets().then(() => { ichiFace = ''; ichiDraw('normal'); dlgFace('normal'); $('btnStart').disabled = false; $('btnStart').textContent = '调取录像'; });
+loadAssets().then(() => { ichiFace = ''; ichiDraw('normal'); dlgFace('normal'); $('btnStart').disabled = false; $('btnStart').textContent = '调取录像'; if (voidLabel) voidLabel(); });
 requestAnimationFrame(loop);
+
+/* ---------- 平台对接：从平台打开时，技能值和 KP 的设置由平台给，结果自动上传给 KP ---------- */
+var VB = window.VOIDB && window.VOIDB.active ? window.VOIDB : null, voidLabel = null;
+if (VB){
+  const S = VB.session, st = S.settings || {};
+  $('inName').value = S.ho + ' ' + S.name; $('inName').readOnly = true;
+  $('inSkill').value = Math.max(1, Math.min(99, S.skill || 1)); $('inSkill').readOnly = true;
+  // KP 的设置（段数、重来次数、教学、破绽类型）对玩家隐藏
+  tierChoice = st.tier || 'auto';
+  retries = Number(st.retries ?? 1);
+  tutOn = String(st.tut ?? '1') === '1';
+  const clues = Array.isArray(st.clues) && st.clues.length ? st.clues : Object.keys(CONFIG.clueTypes);
+  for (const c of document.querySelectorAll('#clueBox input')) c.checked = clues.includes(c.value);
+  for (const id of ['tierSeg', 'retrySeg', 'tutSeg', 'clueBox']) $(id).closest('.row').style.display = 'none';
+  $('preview').style.display = 'none'; $('demoNote').style.display = 'none';
+  // 结果自动传给 KP，不让玩家复制到群里（里面有技能名和数值）
+  $('btnCopy').style.display = 'none'; $('rLine').style.display = 'none';
+  $('btnAgain').textContent = '返回开始界面';
+  VB.statusInto($('voidUp'));
+  const label = () => {
+    $('btnStart').textContent = S.official ? '调取录像（正式判定）' : '调取录像（练习，不计结果）';
+    $('voidInfo').textContent = S.official ? `正式判定还剩 ${S.allowed - S.used} 次，点“调取录像”就算用掉一次。` : '正式判定已经用完。现在开始的结果只作为练习记录。';
+  };
+  voidLabel = label; label(); VB.onStatus(label); refreshIntro();
+}
 
 // 测试接口
 window.__void = {get R(){return R;}, get state(){return state;}, get lastResult(){return lastResult;}, get tut(){return tut;},
-  get sortList(){return sortList;}, get dlg(){return dlg;}, Q, compose, A};
+  get sortList(){return sortList;}, get dlg(){return dlg;}, Q, compose, A, finish};
 }
 </script>
 </body>

@@ -95,8 +95,9 @@ button.ghost{background:transparent;color:var(--fg);border:1px solid var(--fg)}
         <div class="row"><label><input type="checkbox" id="inLow"> 简化特效</label><span class="muted">（卡顿时会自动开启）</span></div>
         <hr>
         <div id="rules"></div>
+        <div class="muted" id="voidInfo" style="margin-bottom:6px"></div>
         <div class="row"><button id="btnStart">开始骇入</button><button class="ghost" id="btnPractice">练习模式</button></div>
-        <div class="muted" style="margin-top:8px">demo：正式版中技能值由角色录入界面提供；难度和关卡由 KP 设定，玩家看不到。</div>
+        <div class="muted" id="demoNote" style="margin-top:8px">demo：正式版中技能值由角色录入界面提供；难度和关卡由 KP 设定，玩家看不到。</div>
       </div>
     </div>
 
@@ -109,6 +110,7 @@ button.ghost{background:transparent;color:var(--fg);border:1px solid var(--fg)}
         <hr>
         <div id="rStats" class="muted"></div>
         <div class="resline" id="rLine"></div>
+        <div class="muted" id="voidUp" style="display:none"></div>
         <div class="row">
           <button id="btnCopy">复制结果</button>
           <button class="ghost" id="btnRetry">重新开始（demo）</button>
@@ -1017,6 +1019,8 @@ function finish(win){
     $('rStats').textContent = `关卡 ${STAGES[stageId].name} · 用时 ${used.toFixed(1)} 秒 · 被击中 ${G.hits} 次`;
     $('rLine').classList.add('hidden'); $('btnCopy').classList.add('hidden'); $('btnRetry').textContent = '返回';
     lastResult = null; bgm('');
+    $('voidUp').style.display = 'none';
+    if (VB) $('btnRetry').textContent = '返回';
     setTimeout(() => $('result').classList.remove('hidden'), 700);
     return;
   }
@@ -1029,6 +1033,7 @@ function finish(win){
   // 回传给 KP 的结果对象（联机阶段经服务器发送）
   lastResult = {game:'hack-detention', stage:stageId, difficulty:CONFIG.difficulty, operator, skill, grade,
                 hpLeft:pl.hp, hpMax:P.playerHP, time:+used.toFixed(1), progress:+progress.toFixed(2), enemyHPCut:cut};
+  if (VB){ VB.report(Object.assign({}, lastResult, {official: VB.official})); $('btnRetry').textContent = '返回'; }
   const gName = {perfect:TEXT.gradePerfect, win:TEXT.gradeWin, lose:TEXT.gradeLose}[grade];
   $('rGrade').textContent = gName; $('rGrade').className = 'grade ' + (win ? 'win' : 'lose');
   $('rText').innerHTML = win
@@ -1080,7 +1085,17 @@ function begin(isPractice){
   newGame(); $('intro').classList.add('hidden'); state = 'play'; perf.t = 0; perf.ema = 1/60;
   $('btnEndPr').classList.toggle('hidden', !practice); resize();
 }
-$('btnStart').onclick = () => begin(false);
+// 从平台打开时，点开始先向服务器登记这一局（还有正式判定就用掉一次），再开始
+$('btnStart').onclick = async () => {
+  sndInit();
+  if (VB){
+    $('btnStart').disabled = true;
+    const r = await VB.start();
+    $('btnStart').disabled = false;
+    if (!r.ok){ $('voidInfo').textContent = r.error; return; }
+  }
+  begin(false);
+};
 $('btnPractice').onclick = () => begin(true);
 $('btnEndPr').onclick = () => { if (state === 'play' && G && G.practice){ G.usedAt = STAGES[stageId].time - G.timeLeft; finish(false); } };
 $('tools').addEventListener('pointerdown', e => e.stopPropagation());
@@ -1117,9 +1132,31 @@ addEventListener('resize', resize);
 readTheme(); setLow(Q.forced, false); resize(); refreshIntro();
 requestAnimationFrame(loop);
 
+/* ---------- 平台对接：从平台打开时，技能值和 KP 的设置由平台给，结果自动上传给 KP ---------- */
+var VB = window.VOIDB && window.VOIDB.active ? window.VOIDB : null;
+if (VB){
+  const S = VB.session;
+  $('inName').value = S.ho + ' ' + S.name; $('inName').readOnly = true;
+  $('inSkill').value = Math.max(1, Math.min(99, S.skill || 1)); $('inSkill').readOnly = true;
+  // KP 的设置（难度、关卡）对玩家隐藏
+  const db = $('diffSeg').querySelector(`[data-d="${S.settings.difficulty}"]`); if (db) segPick($('diffSeg'), db);
+  stageChoice = S.settings.stage || 'firewall';
+  const sb = $('stageSeg').querySelector(`[data-s="${stageChoice}"]`); if (sb) segPick($('stageSeg'), sb);
+  $('diffSeg').closest('.row').style.display = 'none'; $('stageSeg').closest('.row').style.display = 'none';
+  $('preview').style.display = 'none'; $('demoNote').style.display = 'none';
+  // 结果自动传给 KP，不让玩家复制到群里（里面有技能名和数值）
+  $('btnCopy').style.display = 'none'; $('rLine').style.display = 'none';
+  VB.statusInto($('voidUp'));
+  const label = () => {
+    $('btnStart').textContent = S.official ? '开始骇入（正式判定）' : '开始骇入（练习，不计结果）';
+    $('voidInfo').textContent = S.official ? `正式判定还剩 ${S.allowed - S.used} 次，点“开始”就算用掉一次。左边的练习模式不计次数。` : '正式判定已经用完。现在开始的结果只作为练习记录。';
+  };
+  label(); VB.onStatus(label); refreshIntro();
+}
+
 // 测试接口
 window.__void = {get G(){return G;}, get state(){return state;}, set state(v){state=v;}, get lastResult(){return lastResult;},
-  BUL, SND, newGame, update, hurt, setSkill:v=>skill=v, setStage:v=>stageChoice=v, setDiff:v=>CONFIG.difficulty=v, draw};
+  BUL, SND, newGame, update, hurt, setSkill:v=>skill=v, setStage:v=>stageChoice=v, setDiff:v=>CONFIG.difficulty=v, draw, finish};
 }
 </script>
 </body>

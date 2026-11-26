@@ -49,6 +49,27 @@ const DEFAULT_AMBIENT = [
 ];
 const GLITCHES = ['snow', 'black', 'bsod']; // bsod：人类办公电脑的蓝屏
 
+// 第 3c 步：接入平台的游戏。skill：用角色卡的哪个技能；settings：KP 在控制台定的设置（对玩家隐藏）
+const GAME_DEFS = {
+  hack: {
+    skill: 'hack',
+    settings: [
+      { key: 'difficulty', label: '难度', options: [['1.3', '一档 1.3'], ['1.4', '二档 1.4'], ['1.6', '三档 1.6']], def: '1.3' },
+      { key: 'stage', label: '关卡', options: [['firewall', '防火墙'], ['swarm', '数据流'], ['boss', '守卫程序'], ['random', '随机']], def: 'firewall' },
+    ],
+  },
+  footage: {
+    skill: 'comp',
+    settings: [
+      { key: 'tier', label: '段数', options: [['auto', '按技能'], ['high', '6 段'], ['low', '8 段']], def: 'auto' },
+      { key: 'retries', label: '允许重来', options: [['0', '0 次'], ['1', '1 次'], ['2', '2 次'], ['3', '3 次']], def: '1' },
+      { key: 'tut', label: '教学', options: [['1', '开'], ['0', '关']], def: '1' },
+      { key: 'clues', label: '破绽类型', multi: true, options: [['weather', '天气'], ['umbrella', '晾着的伞'], ['paper', '一摞报纸'], ['cat', '白天的白猫']], def: ['weather', 'umbrella', 'paper', 'cat'] },
+    ],
+  },
+};
+const ATTEMPT_TTL = 12 * 3600 * 1000; // 开始一局后多久内还能上传结果
+
 // ---------- 启动 ----------
 const db = DB.load();
 db.presets = db.presets || [];   // {id, name, states: {uid: {entryId: state}}, createdAt, updatedAt}
@@ -59,6 +80,11 @@ if (!Array.isArray(db.hudAmbient)) db.hudAmbient = DEFAULT_AMBIENT.slice();
 // 第 3b 步：办公电脑的系统名、回收站文件（状态存在 db.unlocks[uid]['trash:'+id]）。用户上另有 notes（记事本）
 if (typeof db.deskName !== 'string' || !db.deskName) db.deskName = 'MPD OS';
 db.trash = db.trash || [];       // {id, title, body, createdAt, updatedAt}
+// 第 3c 步：游戏设置、正式局次数、开局记录、结果
+db.gameSettings = db.gameSettings || {}; // {entryId: {key: value}}
+db.plays = db.plays || {};               // {uid: {entryId: {used, extra}}}，正式局次数 = 1 + extra
+db.attempts = db.attempts || {};         // {attemptId: {uid, entry, official, t}}
+db.results = db.results || [];           // {id, rid, uid, entry, official, attempt, result, t, test}
 for (const u of db.users) if (u.role === 'player') fillHudDefaults(u);
 E.sync(db, GAMES_DIR);
 DB.save();
@@ -92,6 +118,35 @@ function now() { return Date.now(); }
 
 function isHuman(u) { return !!u && u.role === 'player' && (u.ho === 'HO1' || u.ho === 'HO3'); }
 function trashKey(id) { return 'trash:' + id; }
+function gameSettings(entryId) {
+  const def = GAME_DEFS[entryId], saved = db.gameSettings[entryId] || {}, out = {};
+  if (!def) return out;
+  for (const f of def.settings) out[f.key] = saved[f.key] !== undefined ? saved[f.key] : f.def;
+  return out;
+}
+function playInfo(uid, entryId) {
+  const p = (db.plays[uid] && db.plays[uid][entryId]) || { used: 0, extra: 0 };
+  const allowed = 1 + (p.extra || 0);
+  return { used: p.used || 0, allowed, official: (p.used || 0) < allowed };
+}
+// 游戏页面里注入的会话信息：玩家的角色名、技能值、KP 的设置、正式局是否还有
+function gameSession(user, entry) {
+  if (user.role === 'kp') return { role: 'kp', game: entry.id };
+  const def = GAME_DEFS[entry.id];
+  return Object.assign({
+    role: 'player', game: entry.id, ho: user.ho, name: user.sheet.name, test: !!user.test,
+    skill: def ? Number(user.sheet[def.skill]) || 0 : null, settings: gameSettings(entry.id),
+  }, playInfo(user.id, entry.id));
+}
+function serveGamePage(req, res, file, session) {
+  fs.readFile(file, 'utf8', (e, html) => {
+    if (e) return notFound(res);
+    const json = JSON.stringify(session).replace(/</g, '\\u003c');
+    const inject = `<script>window.VOID_SESSION=${json};</script><script src="/static/void-bridge.js?v=${assetVersion()}"></script>`;
+    html = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, m => m + inject) : inject + html;
+    send(res, 200, html, 'text/html; charset=utf-8', { 'Cache-Control': 'private, no-store' });
+  });
+}
 function notifyDesk(what = 'desk') {
   for (const u of db.users) if (isHuman(u)) EV.send(u.id, 'refresh', { what });
   notifyKp();
@@ -520,6 +575,56 @@ route('POST', '/api/notes', async (req, res, body) => {
   ok(res, { ok: true, t: cu.user.notesAt });
 });
 
+// ----- 游戏：开局、上传结果、查询次数 -----
+function gamePlayer(req, res, gameId) {
+  const cu = currentUser(req, 'player');
+  if (!cu || cu.user.status !== 'approved') { err(res, 401, '请先登录'); return null; }
+  const entry = entryList().find(e => e.id === gameId);
+  if (!entry) { err(res, 404, '没有这个游戏'); return null; }
+  return { user: cu.user, entry };
+}
+route('GET', '/api/game/status', (req, res, body, url) => {
+  const g = gamePlayer(req, res, url.searchParams.get('game'));
+  if (!g) return;
+  ok(res, Object.assign({ ok: true }, playInfo(g.user.id, g.entry.id)));
+});
+// 点“开始”时调用：还有正式局就用掉一次（防止打不好刷新重来），没有就是练习局
+route('POST', '/api/game/start', async (req, res, body) => {
+  const g = gamePlayer(req, res, body.game);
+  if (!g) return;
+  if (!canOpen(g.user, g.entry)) return err(res, 403, '这个程序现在不能启动');
+  const uid = g.user.id, eid = g.entry.id;
+  const info = playInfo(uid, eid);
+  if (info.official) {
+    db.plays[uid] = db.plays[uid] || {};
+    const p = db.plays[uid][eid] = db.plays[uid][eid] || { used: 0, extra: 0 };
+    p.used = (p.used || 0) + 1;
+  }
+  const id = newId('a');
+  db.attempts[id] = { uid, entry: eid, official: info.official, t: now() };
+  for (const [k, a] of Object.entries(db.attempts)) if (now() - a.t > ATTEMPT_TTL) delete db.attempts[k];
+  DB.save();
+  notifyKp('plays');
+  ok(res, Object.assign({ ok: true, attempt: id }, info, playInfo(uid, eid), { official: info.official }));
+});
+// 结果上传。rid 由浏览器生成，断线补传时同一条不会重复记录。入口关闭后，已开局的仍可上传
+route('POST', '/api/game/result', async (req, res, body) => {
+  const cu = currentUser(req, 'player');
+  if (!cu) return err(res, 401, '请先登录');
+  const a = db.attempts[body.attempt];
+  if (!a || a.uid !== cu.user.id || now() - a.t > ATTEMPT_TTL) return err(res, 404, '这一局已过期');
+  const rid = String(body.rid || '').slice(0, 40);
+  if (!rid) return err(res, 400, '缺少 rid');
+  if (db.results.some(r => r.rid === rid && r.uid === cu.user.id)) return ok(res, { ok: true, dup: true });
+  const result = body.result && typeof body.result === 'object' ? body.result : null;
+  if (!result || JSON.stringify(result).length > 4000) return err(res, 400, '结果格式不正确');
+  db.results.push({ id: newId('r'), rid, uid: cu.user.id, entry: a.entry, official: a.official, attempt: body.attempt, result, t: now(), test: !!cu.user.test });
+  if (db.results.length > 2000) db.results.splice(0, db.results.length - 2000);
+  DB.save();
+  notifyKp(a.official ? 'result-official' : 'result');
+  ok(res);
+});
+
 // ----- KP -----
 function requireKp(req, res) {
   const cu = currentUser(req, 'kp');
@@ -579,6 +684,10 @@ route('GET', '/api/kp/state', (req, res) => {
     hudAmbient: db.hudAmbient,
     trash: db.trash,
     deskName: db.deskName,
+    gameDefs: GAME_DEFS,
+    gameSettings: Object.fromEntries(Object.keys(GAME_DEFS).map(k => [k, gameSettings(k)])),
+    plays: Object.fromEntries(db.users.filter(u => u.role === 'player').map(u => [u.id, Object.fromEntries(entryList().map(e => [e.id, playInfo(u.id, e.id)]))])),
+    results: db.results.slice(-300).reverse(),
     presets: db.presets.map(p => ({ id: p.id, name: p.name, updatedAt: p.updatedAt })),
     messages: db.messages.slice().reverse(),
     invites: db.invites.slice().reverse(),
@@ -676,6 +785,8 @@ route('POST', '/api/kp/user/delete', async (req, res, body) => {
   const u = db.users[i];
   db.users.splice(i, 1);
   delete db.unlocks[u.id];
+  delete db.plays[u.id];
+  db.results = db.results.filter(r => r.uid !== u.id);
   for (const p of db.presets) delete p.states[u.id];
   for (const m of db.messages) m.to = m.to.filter(x => x !== u.id);
   db.messages = db.messages.filter(m => m.to.length);
@@ -932,6 +1043,54 @@ route('POST', '/api/kp/desk', async (req, res, body) => {
   ok(res);
 });
 
+// 游戏设置（对所有玩家统一）
+route('POST', '/api/kp/game/settings', async (req, res, body) => {
+  if (!requireKp(req, res)) return;
+  const def = GAME_DEFS[body.entry];
+  if (!def) return err(res, 404, '这个游戏没有可调的设置');
+  const out = {}, inp = body.settings || {};
+  for (const f of def.settings) {
+    const v = inp[f.key], keys = f.options.map(o => o[0]);
+    if (f.multi) {
+      const arr = Array.isArray(v) ? v.filter(x => keys.includes(x)) : [];
+      if (!arr.length) return err(res, 400, `${f.label}至少选一项`);
+      out[f.key] = arr;
+    } else {
+      if (!keys.includes(String(v))) return err(res, 400, `${f.label}不正确`);
+      out[f.key] = String(v);
+    }
+  }
+  db.gameSettings[body.entry] = out;
+  DB.save();
+  notifyKp();
+  ok(res);
+});
+
+// 再给一次正式局
+route('POST', '/api/kp/game/grant', async (req, res, body) => {
+  if (!requireKp(req, res)) return;
+  const u = findPlayer(body.uid);
+  const e = entryList().find(x => x.id === body.entry);
+  if (!u || !e) return err(res, 404, '玩家或游戏不存在');
+  db.plays[u.id] = db.plays[u.id] || {};
+  const p = db.plays[u.id][e.id] = db.plays[u.id][e.id] || { used: 0, extra: 0 };
+  p.extra = (p.extra || 0) + 1;
+  DB.save();
+  EV.send(u.id, 'refresh', { what: 'plays' });
+  notifyKp();
+  ok(res, Object.assign({ ok: true }, playInfo(u.id, e.id)));
+});
+
+route('POST', '/api/kp/result/delete', async (req, res, body) => {
+  if (!requireKp(req, res)) return;
+  const n = db.results.length;
+  db.results = db.results.filter(r => r.id !== body.id);
+  if (db.results.length === n) return err(res, 404, '没有这条结果');
+  DB.save();
+  notifyKp();
+  ok(res);
+});
+
 // 界面故障：只推送，不保存
 route('POST', '/api/kp/glitch', async (req, res, body) => {
   if (!requireKp(req, res)) return;
@@ -966,6 +1125,8 @@ route('POST', '/api/kp/test/reset', async (req, res) => {
     u.hpNow = u.sheet.hp;
     u.vitals = { hr: null, bp: null, rr: null };
     u.notes = ''; u.notesAt = null;
+    delete db.plays[u.id];
+    db.results = db.results.filter(r => r.uid !== u.id);
     fillHudDefaults(u);
     db.unlocks[u.id] = Object.fromEntries(entryList().map(e => [e.id, 'open']));
     for (const m of db.messages) m.to = m.to.filter(x => x !== u.id);
@@ -1033,6 +1194,10 @@ const server = http.createServer(async (req, res) => {
       if (!m[2]) { res.writeHead(301, { Location: `/games/${m[1]}/` }); return res.end(); }
       const f = safeJoin(path.join(GAMES_DIR, entry.dir), rel);
       if (!f) return notFound(res);
+      if (rel === 'index.html') {
+        if (user.role === 'player') gameOpened.set(`${user.id}:${entry.id}`, now());
+        return serveGamePage(req, res, f, gameSession(user, entry));
+      }
       const cache = isPage ? 'private, no-cache' : 'private, max-age=86400';
       const onServed = isPage && user.role === 'player' ? () => gameOpened.set(`${user.id}:${entry.id}`, now()) : null;
       return serveFile(req, res, f, cache, onServed);
